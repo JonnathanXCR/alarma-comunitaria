@@ -1,0 +1,22 @@
+{
+    "flutter": {
+        "platforms": {
+            "android": {
+                "default": {
+                    "projectId": "alarma-comunitaria-340c7",
+                    "appId": "1:373429991296:android:d76faae53ba86f29f77365",
+                    "fileOutput": "android/app/google-services.json"
+                }
+            },
+            "dart": {
+                "lib/firebase_options.dart": {
+                    "projectId": "alarma-comunitaria-340c7",
+                    "configurations": {
+                        "android": "1:373429991296:android:d76faae53ba86f29f77365",
+                        "ios": "1:373429991296:ios:11d0df462d6db29bf77365"
+                    }
+                }
+            }
+        }
+    }
+}

@@ -1,0 +1,130 @@
+# Miscellaneous
+*.class
+*.log
+*.pyc
+*.swp
+.DS_Store
+.atom/
+.build/
+.buildlog/
+.history
+.svn/
+.swiftpm/
+migrate_working_dir/
+
+# Environment variables (credenciales privadas)
+.env
+
+# IntelliJ related
+*.iml
+*.ipr
+*.iws
+.idea/
+
+# The .vscode folder contains launch configuration and tasks you configure in
+# VS Code which you may wish to be included in version control, so this line
+# is commented out by default.
+#.vscode/
+
+# Flutter/Dart/Pub related
+**/doc/api/
+**/ios/Flutter/.last_build_id
+.dart_tool/
+.flutter-plugins-dependencies
+.pub-cache/
+.pub/
+/build/
+/coverage/
+
+# Symbolication related
+app.*.symbols
+
+# Obfuscation related
+app.*.map.json
+
+# Android Studio will place build artifacts here
+/android/app/debug
+/android/app/profile
+/android/app/release
+
+# ==============================================================================
+# Sensitive Files and Credentials
+# ==============================================================================
+# Environment variables
+.env*
+*.env
+.env.local
+.env.development
+.env.test
+.env.production
+
+# Service Account and API Keys
+serviceAccountKey.json
+service-account-key.json
+credentials.json
+client_secret.json
+google-services.json
+GoogleService-Info.plist
+
+# Keystore files
+*.jks
+*.keystore
+*.p12
+*.pem
+*.cer
+
+# Local properties
+**/android/key.properties
+**/android/local.properties
+
+# ==============================================================================
+# Flutter / Dart Specifics
+# ==============================================================================
+# Android
+**/android/.gradle/
+**/android/app/build/
+**/android/build/
+
+# iOS
+**/ios/Pods/
+**/ios/.symlinks/
+**/ios/Flutter/Flutter.framework
+**/ios/Flutter/Flutter.podspec
+**/ios/Flutter/Generated.xcconfig
+**/ios/Flutter/app.flx
+**/ios/Flutter/app.zip
+**/ios/Flutter/flutter_assets/
+**/ios/Flutter/flutter_export_environment.sh
+
+# Web
+**/web/build/
+
+# macOS
+**/macos/Flutter/GeneratedPluginRegistrant.swift
+**/macos/Flutter/ephemeral/
+**/macos/Pods/
+
+# Linux
+**/linux/flutter/generated_plugin_registrant.cc
+**/linux/flutter/ephemeral/
+
+# Windows
+**/windows/flutter/generated_plugin_registrant.cc
+**/windows/flutter/ephemeral/
+
+# General IDEs and Build Tools
+*.dSYM/
+.idea/
+.vscode/
+
+# Ignore outputs and caches
+build/
+.dart_tool/
+.pub-cache/
+.pub/
+**/coverage/
+
+# Custom ignored files (logs and reports)
+analyze*.txt
+test_out*.txt
+stitch_profile.html
