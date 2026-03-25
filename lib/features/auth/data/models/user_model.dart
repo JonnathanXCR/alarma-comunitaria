@@ -9,6 +9,7 @@ class UserModel extends User {
     required super.direccion,
     required super.telefono,
     super.barrioId,
+    super.barrioNombre,
     super.rol,
     super.estadoAprobacion,
   });
@@ -23,6 +24,7 @@ class UserModel extends User {
       direccion: json['direccion'] as String,
       telefono: json['telefono'] as String,
       barrioId: json['barrio_id'] as String?,
+      barrioNombre: (json['barrios'] as Map<String, dynamic>?)?['nombre'] as String?,
       rol: json['rol'] as String? ?? 'vecino',
       estadoAprobacion: json['estado_aprobacion'] as String? ?? 'pendiente',
     );

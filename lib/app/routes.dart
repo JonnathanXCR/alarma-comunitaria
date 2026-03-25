@@ -3,20 +3,25 @@ import 'package:go_router/go_router.dart';
 import '../features/auth/presentation/pages/login_page.dart';
 import '../features/auth/presentation/pages/register_page.dart';
 import '../features/auth/presentation/providers/auth_provider.dart';
+import '../features/auth/presentation/pages/otp_verification_page.dart';
 import '../features/alarm/presentation/pages/home_page.dart';
 import '../features/alarm/presentation/pages/active_alert_page.dart';
+import '../features/neighborhood/domain/entities/neighborhood.dart';
 import '../features/neighborhood/presentation/pages/neighborhood_page.dart';
-import '../features/admin/presentation/pages/approval_page.dart';
+import '../features/neighborhood/presentation/pages/create_neighborhood_page.dart';
+import '../features/neighborhood/presentation/pages/edit_neighborhood_page.dart';
 import '../features/admin/presentation/pages/neighbors_page.dart';
 
 /// Rutas de la aplicación.
 abstract class AppRoutes {
   static const login = '/login';
   static const register = '/registro';
+  static const otpVerification = '/verificar-otp';
   static const home = '/';
   static const activeAlert = '/alerta-activa';
   static const neighborhood = '/barrios';
-  static const approvals = '/aprobaciones';
+  static const createNeighborhood = '/crear-barrio';
+  static const editNeighborhood = '/editar-barrio';
   static const neighbors = '/vecinos';
 }
 
@@ -29,9 +34,11 @@ GoRouter buildRouter(AuthProvider authProvider) {
       final loc = state.matchedLocation;
       final isOnLogin = loc == AppRoutes.login;
       final isOnRegister = loc == AppRoutes.register;
+      final isOnOtp = loc == AppRoutes.otpVerification;
 
-      if (!isAuth && !isOnLogin && !isOnRegister) return AppRoutes.login;
-      if (isAuth && (isOnLogin || isOnRegister)) return AppRoutes.home;
+      if (!isAuth && !isOnLogin && !isOnRegister && !isOnOtp) return AppRoutes.login;
+      if (isAuth && (isOnLogin || isOnRegister || isOnOtp)) return AppRoutes.home;
+
       return null;
     },
     routes: [
@@ -42,6 +49,13 @@ GoRouter buildRouter(AuthProvider authProvider) {
       GoRoute(
         path: AppRoutes.register,
         builder: (context, state) => const RegisterPage(),
+      ),
+      GoRoute(
+        path: AppRoutes.otpVerification,
+        builder: (context, state) {
+          final email = state.extra as String? ?? '';
+          return OtpVerificationPage(email: email);
+        },
       ),
       GoRoute(
         path: AppRoutes.home,
@@ -56,8 +70,15 @@ GoRouter buildRouter(AuthProvider authProvider) {
         builder: (context, state) => const NeighborhoodPage(),
       ),
       GoRoute(
-        path: AppRoutes.approvals,
-        builder: (context, state) => const ApprovalPage(),
+        path: AppRoutes.createNeighborhood,
+        builder: (context, state) => const CreateNeighborhoodPage(),
+      ),
+      GoRoute(
+        path: AppRoutes.editNeighborhood,
+        builder: (context, state) {
+          final barrio = state.extra as Barrio;
+          return EditNeighborhoodPage(barrio: barrio);
+        },
       ),
       GoRoute(
         path: AppRoutes.neighbors,

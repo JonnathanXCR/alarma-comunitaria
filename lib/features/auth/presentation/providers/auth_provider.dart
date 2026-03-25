@@ -174,7 +174,7 @@ class AuthProvider extends ChangeNotifier {
       if (user == null) {
         _status = AuthStatus.unauthenticated;
         _successMessage =
-            'Registro exitoso. Revisa tu correo electrónico para confirmar tu cuenta y luego inicia sesión.';
+            'Registro exitoso. Revisa tu correo electrónico para obtener el código de verificación e ingrésalo a continuación.';
       } else {
         _user = user;
         _status = AuthStatus.authenticated;
@@ -188,6 +188,98 @@ class AuthProvider extends ChangeNotifier {
       _errorMessage = 'Error inesperado. Intenta de nuevo.';
     }
     notifyListeners();
+  }
+
+  /// Actualiza el perfil del usuario autenticado.
+  Future<void> updateProfile({
+    required String nombre,
+    required String apellido,
+    required String telefono,
+    required String direccion,
+    String? barrioId,
+  }) async {
+    if (_user == null) return;
+    _status = AuthStatus.loading;
+    _errorMessage = null;
+    _successMessage = null;
+    notifyListeners();
+
+    try {
+      final updatedUser = await _repository.updateProfile(
+        userId: _user!.id,
+        nombre: nombre,
+        apellido: apellido,
+        direccion: direccion,
+        telefono: telefono,
+        barrioId: barrioId,
+      );
+
+      _user = updatedUser;
+      
+      // Reconectar WS si el barrio cambió
+      if (barrioId != null && barrioId != _user!.barrioId) {
+        RealtimeService.instance.disconnect();
+        _connectRealtime();
+      }
+
+      // El usuario ahora está pendiente de aprobación, así que el HomePage
+      // y el router se encargarán de enviarlo a PendingApprovalPage
+      _successMessage = 'Perfil actualizado. Pendiente de aprobación.';
+      _status = AuthStatus.authenticated; // Mantener como autenticado para que HomePage pueda redirigir
+    } on AuthException catch (e) {
+      _status = AuthStatus.error;
+      _errorMessage = e.message;
+    } catch (e) {
+      _status = AuthStatus.error;
+      _errorMessage = 'Error inesperado al actualizar perfil. Intenta de nuevo.';
+    }
+    notifyListeners();
+  }
+
+  /// Verifica el OTP de registro.
+  Future<bool> verifyOTP(String email, String otp) async {
+    _status = AuthStatus.loading;
+    _errorMessage = null;
+    _successMessage = null;
+    notifyListeners();
+
+    try {
+      final user = await _repository.verifyOTP(email: email, token: otp);
+      if (user != null) {
+        _user = user;
+        _status = AuthStatus.authenticated;
+        _connectRealtime();
+        notifyListeners();
+        return true;
+      }
+    } on AuthException catch (e) {
+      _status = AuthStatus.unauthenticated;
+      _errorMessage = e.message;
+    } catch (e) {
+      _status = AuthStatus.unauthenticated;
+      _errorMessage = 'Error al verificar el código. Intenta de nuevo.';
+    }
+    notifyListeners();
+    return false;
+  }
+
+  /// Limpia los mensajes de error/éxito (usado por la UI).
+  void clearMessage() {
+    _errorMessage = null;
+    _successMessage = null;
+    notifyListeners();
+  }
+
+  /// Reenvía el código OTP de registro.
+  Future<void> resendOTP(String email) async {
+    try {
+      await Supabase.instance.client.auth.resend(
+        type: OtpType.signup,
+        email: email,
+      );
+    } catch (e) {
+      print('Error resending OTP: $e');
+    }
   }
 
   /// Cierra sesión, desconecta Realtime y limpia el estado.

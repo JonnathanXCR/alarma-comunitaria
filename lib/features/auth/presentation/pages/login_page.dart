@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
 import '../providers/auth_provider.dart';
+import '../../../../app/routes.dart';
 import '../../../../core/theme/app_colors.dart';
 
 class LoginPage extends StatefulWidget {
@@ -49,10 +50,30 @@ class _LoginPageState extends State<LoginPage>
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
     HapticFeedback.lightImpact();
-    await context.read<AuthProvider>().login(
-      email: _emailController.text.trim(),
-      password: _passwordController.text,
-    );
+
+    final authProvider = context.read<AuthProvider>();
+    final email = _emailController.text.trim();
+
+    await authProvider.login(email: email, password: _passwordController.text);
+
+    if (!mounted) return;
+
+    if (authProvider.errorMessage != null) {
+      final msg = authProvider.errorMessage!.toLowerCase();
+      // NOTA DE SEGURIDAD: Nunca redigirir a OTP en errores genéricos de
+      // "Credenciales inválidas" o contraseñas incorrectas, de lo contrario
+      // un usuario malicioso podría intentar adivinar OTPs de cualquier correo.
+      // SÓLO redirigimos si el error menciona explícitamente confirmación o verificación.
+      final needsOtp =
+          msg.contains('confirm') ||
+          msg.contains('verifi') ||
+          msg.contains('email not');
+
+      if (needsOtp) {
+        authProvider.clearMessage();
+        context.push(AppRoutes.otpVerification, extra: email);
+      }
+    }
   }
 
   @override
@@ -76,7 +97,7 @@ class _LoginPageState extends State<LoginPage>
                   children: [
                     const SizedBox(height: 60),
 
-                    // ── Logo / Escudo ──
+                    // ── Logo  ──
                     Center(
                       child: Container(
                         width: 72,
@@ -92,10 +113,11 @@ class _LoginPageState extends State<LoginPage>
                             ),
                           ],
                         ),
-                        child: const Icon(
-                          Icons.shield_rounded,
-                          color: Colors.white,
-                          size: 40,
+                        child: Image.asset(
+                          'assets/images/logo.png',
+                          width: 48,
+                          height: 48,
+                          fit: BoxFit.contain,
                         ),
                       ),
                     ),
@@ -300,7 +322,7 @@ class _LoginPageState extends State<LoginPage>
                         const SizedBox(height: 6),
                         GestureDetector(
                           onTap: () {
-                            context.push('/registro');
+                            context.push(AppRoutes.register);
                           },
                           child: const Text(
                             'CREAR UNA CUENTA NUEVA',

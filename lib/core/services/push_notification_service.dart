@@ -1,6 +1,7 @@
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
 import '../globals.dart';
@@ -11,6 +12,13 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   if (kDebugMode) {
     print("Handling a background message: ${message.messageId}");
   }
+
+  // Marcar que hay alerta activa en el caché local
+  // Esto permite que al abrir la app se sepa que hay una alerta pendiente
+  try {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('has_active_alert', true);
+  } catch (_) {}
 
   final FlutterLocalNotificationsPlugin localNotif =
       FlutterLocalNotificationsPlugin();
@@ -213,25 +221,79 @@ class PushNotificationService {
             .from('perfiles')
             .update({'fcm_token': token})
             .eq('id', user.id);
-            
+
         // Get the neighborhood ID to subscribe to the relevant topic
         final userData = await supabase
             .from('perfiles')
             .select('barrio_id')
             .eq('id', user.id)
             .maybeSingle();
-            
+
         if (userData != null && userData['barrio_id'] != null) {
-          final barrioId = userData['barrio_id'];
-          await FirebaseMessaging.instance.subscribeToTopic('barrio_$barrioId');
-          if (kDebugMode) {
-            print('Successfully subscribed to topic: barrio_$barrioId');
-          }
+          await configurarSuscripcionBarrio(userData['barrio_id'].toString());
         }
       } catch (e) {
         if (kDebugMode) {
           print('Error saving FCM token or subscribing to topic: $e');
         }
+      }
+    }
+  }
+
+  /// Gestiona la suscripción al topic FCM del barrio del usuario.
+  ///
+  /// Si el usuario cambia de barrio, se desuscribe del topic anterior antes
+  /// de suscribirse al nuevo. El [idBarrio] es el identificador único del barrio.
+  static Future<void> configurarSuscripcionBarrio(String idBarrio) async {
+    const prefsKey = 'subscribed_barrio_id';
+    final nuevoTopic = 'barrio_$idBarrio';
+
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final barrioAnterior = prefs.getString(prefsKey);
+
+      // 1. Desuscribir del topic viejo si el barrio cambió
+      if (barrioAnterior != null && barrioAnterior != idBarrio) {
+        final topicAnterior = 'barrio_$barrioAnterior';
+        try {
+          await FirebaseMessaging.instance.unsubscribeFromTopic(topicAnterior);
+          if (kDebugMode) {
+            print('[FCM] Desuscrito del topic anterior: $topicAnterior');
+          }
+        } catch (e) {
+          if (kDebugMode) {
+            print('[FCM] Error al desuscribirse de $topicAnterior: $e');
+          }
+          // Continuamos aunque falle la desuscripción
+        }
+      }
+
+      // 2. Suscribir al nuevo topic
+      await FirebaseMessaging.instance.subscribeToTopic(nuevoTopic);
+      await prefs.setString(prefsKey, idBarrio);
+
+      if (kDebugMode) {
+        print('[FCM] Suscrito correctamente al topic: $nuevoTopic');
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('[FCM] Error al configurar suscripción al topic $nuevoTopic: $e');
+      }
+      rethrow; // Propaga el error para que el llamador pueda manejarlo
+    }
+  }
+
+  /// Cancela todas las notificaciones locales activas.
+  /// Esto detiene el sonido de la alarma si está sonando.
+  static Future<void> cancelAllNotifications() async {
+    try {
+      await _localNotifications.cancelAll();
+      if (kDebugMode) {
+        print('All local notifications cancelled.');
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('Error cancelling notifications: $e');
       }
     }
   }

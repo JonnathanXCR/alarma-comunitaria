@@ -38,11 +38,11 @@ class _ActiveAlertPageState extends State<ActiveAlertPage>
     super.didChangeDependencies();
     final alarmProvider = context.watch<AlarmProvider>();
     final alert = alarmProvider.activeAlert;
-    
+
     if (alert == null) {
-      // Si entramos a esta vista y no hay alerta en memoria (ej. app cerrada), buscar la última.
+      // Si entramos a esta vista y no hay alerta en memoria (ej. app cerrada), iniciar sync.
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        context.read<AlarmProvider>().fetchLatestAlert();
+        context.read<AlarmProvider>().init();
       });
     } else if (_createdAt == null) {
       _createdAt = alert.creadoEn;
@@ -59,6 +59,16 @@ class _ActiveAlertPageState extends State<ActiveAlertPage>
       setState(() {
         _activeTime = DateTime.now().difference(_createdAt!);
       });
+    }
+  }
+
+  Future<void> _openMap(double? lat, double? lng) async {
+    if (lat == null || lng == null) return;
+    final url = Uri.parse(
+      'https://www.google.com/maps/search/?api=1&query=$lat,$lng',
+    );
+    if (await canLaunchUrl(url)) {
+      await launchUrl(url, mode: LaunchMode.externalApplication);
     }
   }
 
@@ -86,7 +96,10 @@ class _ActiveAlertPageState extends State<ActiveAlertPage>
 
     final authProvider = context.watch<AuthProvider>();
     final rol = authProvider.user?.rol;
-    final canDeactivate = rol == 'admin' || rol == 'supervisor' || rol == 'presidente_barrio';
+    final canDeactivate =
+        rol == 'admin' ||
+        ((rol == 'supervisor' || rol == 'presidente_barrio') &&
+            alert?.barrioId == authProvider.user?.barrioId);
 
     // Si no hay alerta, mostramos un fallback básico (aunque el ruteo
     // de HomePage evitará llegar aquí).
@@ -102,7 +115,6 @@ class _ActiveAlertPageState extends State<ActiveAlertPage>
     final primaryColor = isSuspect
         ? AppColors.orangeBright
         : AppColors.redBright;
-    final secondaryColor = isSuspect ? AppColors.orange : AppColors.red;
     const whatsappColor = Color(0xFF25D366);
 
     final isDark = Theme.of(context).brightness == Brightness.dark;
@@ -131,163 +143,148 @@ class _ActiveAlertPageState extends State<ActiveAlertPage>
                 // Map Section
                 Stack(
                   children: [
-                    SizedBox(
-                      height: 250,
-                      width: double.infinity,
-                      child: ColorFiltered(
-                        colorFilter: const ColorFilter.matrix([
-                          0.2126,
-                          0.7152,
-                          0.0722,
-                          0,
-                          0,
-                          0.2126,
-                          0.7152,
-                          0.0722,
-                          0,
-                          0,
-                          0.2126,
-                          0.7152,
-                          0.0722,
-                          0,
-                          0,
-                          0,
-                          0,
-                          0,
-                          1,
-                          0,
-                        ]),
-                        child: Image.network(
-                          'https://maps.googleapis.com/maps/api/staticmap?center=${alert.latitud ?? 0},${alert.longitud ?? 0}&zoom=15&size=600x300&key=MOCK_KEY', // Placeholder
-                          fit: BoxFit.cover,
-                          errorBuilder: (context, error, stackTrace) =>
-                              Container(
-                                color: isDark
-                                    ? Colors.grey[900]
-                                    : Colors.grey[300],
-                                alignment: Alignment.center,
-                                child: Icon(
-                                  Icons.map,
-                                  size: 64,
-                                  color: subtleTextColor,
+                    GestureDetector(
+                      onTap: () => _openMap(alert.latitud, alert.longitud),
+                      child: SizedBox(
+                        height: 200,
+                        width: double.infinity,
+                        child: ColorFiltered(
+                          colorFilter: const ColorFilter.matrix([
+                            0.2126,
+                            0.7152,
+                            0.0722,
+                            0,
+                            0,
+                            0.2126,
+                            0.7152,
+                            0.0722,
+                            0,
+                            0,
+                            0.2126,
+                            0.7152,
+                            0.0722,
+                            0,
+                            0,
+                            0,
+                            0,
+                            0,
+                            1,
+                            0,
+                          ]),
+                          child: Image.network(
+                            'https://maps.googleapis.com/maps/api/staticmap?center=${alert.latitud ?? 0},${alert.longitud ?? 0}&zoom=15&size=600x300&key=MOCK_KEY', // Placeholder
+                            fit: BoxFit.cover,
+                            errorBuilder: (context, error, stackTrace) =>
+                                Container(
+                                  color: isDark
+                                      ? Colors.grey[900]
+                                      : Colors.grey[300],
+                                  alignment: Alignment.center,
+                                  child: Icon(
+                                    Icons.map,
+                                    size: 120,
+                                    color: subtleTextColor,
+                                  ),
                                 ),
-                              ),
+                          ),
                         ),
                       ),
                     ),
                     // Pulsing beacon
                     Positioned.fill(
-                      child: Center(
-                        child: AnimatedBuilder(
-                          animation: _pulseController,
-                          builder: (context, child) {
-                            return Container(
-                              width: 60 + (_pulseController.value * 40),
-                              height: 60 + (_pulseController.value * 40),
-                              decoration: BoxDecoration(
-                                shape: BoxShape.circle,
-                                color: primaryColor.withOpacity(
-                                  0.3 * (1 - _pulseController.value),
-                                ),
-                              ),
-                              child: Center(
-                                child: Container(
-                                  width: 24,
-                                  height: 24,
-                                  decoration: BoxDecoration(
-                                    color: primaryColor,
-                                    shape: BoxShape.circle,
-                                    border: Border.all(
-                                      color: Colors.white,
-                                      width: 4,
-                                    ),
-                                    boxShadow: const [
-                                      BoxShadow(
-                                        color: Colors.black26,
-                                        blurRadius: 8,
-                                        offset: Offset(0, 4),
-                                      ),
-                                    ],
-                                  ),
-                                  child: Center(
-                                    child: Container(
-                                      width: 8,
-                                      height: 8,
-                                      decoration: const BoxDecoration(
-                                        color: Colors.white,
-                                        shape: BoxShape.circle,
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            );
-                          },
-                        ),
-                      ),
-                    ),
-                    // Location Card Overlay
-                    Positioned(
-                      bottom: 16,
-                      left: 24,
-                      right: 24,
-                      child: Container(
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          color: isDark
-                              ? cardColor.withOpacity(0.9)
-                              : Colors.white.withOpacity(0.9),
-                          borderRadius: BorderRadius.circular(16),
-                          border: Border.all(color: borderColor),
-                          boxShadow: const [
-                            BoxShadow(color: Colors.black12, blurRadius: 10),
-                          ],
-                        ),
-                        child: Row(
-                          children: [
-                            Container(
-                              width: 32,
-                              height: 32,
-                              decoration: BoxDecoration(
-                                color: primaryColor.withOpacity(0.2),
-                                borderRadius: BorderRadius.circular(8),
-                              ),
-                              child: Icon(
-                                Icons.location_on,
-                                color: primaryColor,
-                                size: 20,
-                              ),
-                            ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
+                      child: GestureDetector(
+                        onTap: () => _openMap(alert.latitud, alert.longitud),
+                        child: Center(
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Stack(
+                                alignment: Alignment.center,
                                 children: [
-                                  Text(
-                                    alert.lugar ?? 'Ubicación Desconocida',
-                                    style: TextStyle(
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.bold,
-                                      color: textColor,
-                                    ),
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
+                                  // Animated pulse halo — only the ring grows
+                                  AnimatedBuilder(
+                                    animation: _pulseController,
+                                    builder: (context, _) {
+                                      final size =
+                                          58.0 + (_pulseController.value * 42);
+                                      return Container(
+                                        width: size,
+                                        height: size,
+                                        decoration: BoxDecoration(
+                                          shape: BoxShape.circle,
+                                          color: primaryColor.withOpacity(
+                                            0.35 * (1 - _pulseController.value),
+                                          ),
+                                        ),
+                                      );
+                                    },
                                   ),
-                                  Text(
-                                    'Ubicación reportada por el emisor',
-                                    style: TextStyle(
-                                      fontSize: 10,
-                                      fontWeight: FontWeight.w500,
-                                      color: subtleTextColor,
+                                  // Fixed-size map pin
+                                  Container(
+                                    width: 52,
+                                    height: 52,
+                                    decoration: BoxDecoration(
+                                      color: primaryColor,
+                                      shape: BoxShape.circle,
+                                      border: Border.all(
+                                        color: Colors.white,
+                                        width: 3,
+                                      ),
+                                      boxShadow: const [
+                                        BoxShadow(
+                                          color: Colors.black38,
+                                          blurRadius: 14,
+                                          offset: Offset(0, 5),
+                                        ),
+                                      ],
+                                    ),
+                                    child: const Icon(
+                                      Icons.location_on,
+                                      color: Colors.white,
+                                      size: 28,
                                     ),
                                   ),
                                 ],
                               ),
-                            ),
-                          ],
+                              const SizedBox(height: 10),
+                              // Action chip — static, always readable
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 14,
+                                  vertical: 5,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: Colors.black.withOpacity(0.72),
+                                  borderRadius: BorderRadius.circular(20),
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: const [
+                                    Icon(
+                                      Icons.open_in_new,
+                                      color: Colors.white,
+                                      size: 13,
+                                    ),
+                                    SizedBox(width: 5),
+                                    Text(
+                                      'Toca para abrir el mapa',
+                                      style: TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w600,
+                                        letterSpacing: 0.2,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
                       ),
                     ),
+
+                    // Location Card Overlay
                   ],
                 ),
 
@@ -330,7 +327,7 @@ class _ActiveAlertPageState extends State<ActiveAlertPage>
                                   ),
                                   const SizedBox(height: 4),
                                   Text(
-                                    'VECINO: ${alert.usuarioId.substring(0, 6).toUpperCase()}',
+                                    'VECINO: ${alert.usuarioNombre ?? alert.usuarioId.substring(0, 6).toUpperCase()}',
                                     style: TextStyle(
                                       fontSize: 11,
                                       fontWeight: FontWeight.bold,
@@ -523,17 +520,81 @@ class _ActiveAlertPageState extends State<ActiveAlertPage>
                                   ),
                                 ),
                               ],
+                              if (alert.imagenUrl != null &&
+                                  alert.imagenUrl!.isNotEmpty) ...[
+                                const SizedBox(height: 16),
+                                Divider(height: 1, color: borderColor),
+                                const SizedBox(height: 12),
+                                Text(
+                                  'FOTO DEL LUGAR',
+                                  style: TextStyle(
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.bold,
+                                    color: subtleTextColor,
+                                    letterSpacing: 1,
+                                  ),
+                                ),
+                                const SizedBox(height: 8),
+                                ClipRRect(
+                                  borderRadius: BorderRadius.circular(16),
+                                  child: Image.network(
+                                    alert.imagenUrl!,
+                                    width: double.infinity,
+                                    height: 200,
+                                    fit: BoxFit.cover,
+                                    loadingBuilder:
+                                        (context, child, loadingProgress) {
+                                      if (loadingProgress == null) return child;
+                                      return Container(
+                                        height: 200,
+                                        color: isDark
+                                            ? Colors.grey[900]
+                                            : Colors.grey[100],
+                                        child: const Center(
+                                          child: CircularProgressIndicator(),
+                                        ),
+                                      );
+                                    },
+                                    errorBuilder: (context, error, stackTrace) =>
+                                        Container(
+                                          height: 100,
+                                          color: isDark
+                                              ? Colors.grey[900]
+                                              : Colors.grey[200],
+                                          child: Center(
+                                            child: Column(
+                                              mainAxisSize: MainAxisSize.min,
+                                              children: [
+                                                Icon(
+                                                  Icons.broken_image_outlined,
+                                                  color: subtleTextColor,
+                                                ),
+                                                const SizedBox(height: 4),
+                                                Text(
+                                                  'Error al cargar imagen',
+                                                  style: TextStyle(
+                                                    fontSize: 12,
+                                                    color: subtleTextColor,
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                        ),
+                                  ),
+                                ),
+                              ],
                             ],
                           ),
                         ),
 
                         const SizedBox(height: 24),
-                        // Mock Responders (as per design)
+                        // Respondedores desde respuestas_alerta
                         Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
                             Text(
-                              'RESPONDIENDO A LA ALERTA (3)',
+                              'RESPONDIENDO A LA ALERTA (${alarmProvider.alertResponses.length})',
                               style: TextStyle(
                                 fontSize: 11,
                                 fontWeight: FontWeight.bold,
@@ -545,142 +606,72 @@ class _ActiveAlertPageState extends State<ActiveAlertPage>
                           ],
                         ),
                         const SizedBox(height: 12),
-                        _buildResponderRow(
-                          name: 'Andrés Moreno',
-                          subtitle: 'A 200 metros',
-                          initials: 'AM',
-                          status: 'EN CAMINO',
-                          statusColor: Colors.green,
-                          isDark: isDark,
-                          cardColor: cardColor,
-                          borderColor: borderColor,
-                        ),
-                        const SizedBox(height: 12),
-                        _buildResponderRow(
-                          name: 'Seguridad Vecinal',
-                          subtitle: 'Patrulla Sector 4',
-                          initials: 'S',
-                          status: 'NOTIFICADO',
-                          statusColor: Colors.blue,
-                          isDark: isDark,
-                          cardColor: cardColor,
-                          borderColor: borderColor,
-                        ),
-                        const SizedBox(height: 12),
-                        _buildResponderRow(
-                          name: 'Laura Rojas',
-                          subtitle: 'Vecina',
-                          initials: 'LR',
-                          status: 'PENDIENTE',
-                          statusColor: subtleTextColor,
-                          isDark: isDark,
-                          cardColor: cardColor,
-                          borderColor: borderColor,
-                          opacity: 0.7,
-                        ),
+                        if (alarmProvider.alertResponses.isEmpty)
+                          Container(
+                            padding: const EdgeInsets.all(16),
+                            decoration: BoxDecoration(
+                              color: cardColor,
+                              borderRadius: BorderRadius.circular(16),
+                              border: Border.all(color: borderColor),
+                            ),
+                            child: Center(
+                              child: Text(
+                                'Sin respuestas aún',
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  color: subtleTextColor,
+                                  fontStyle: FontStyle.italic,
+                                ),
+                              ),
+                            ),
+                          )
+                        else
+                          ...alarmProvider.alertResponses.asMap().entries.map((
+                            entry,
+                          ) {
+                            final respuesta = entry.value;
+                            final nombre = respuesta.usuarioNombre ?? 'Vecino';
+                            final initials = nombre
+                                .split(' ')
+                                .where((w) => w.isNotEmpty)
+                                .map((w) => w[0].toUpperCase())
+                                .take(2)
+                                .join();
+                            final estado = respuesta.estado.toUpperCase();
+                            Color statusColor;
+                            switch (estado) {
+                              case 'RECIBIDA':
+                              case 'EN_CAMINO':
+                                statusColor = Colors.green;
+                                break;
+                              case 'NOTIFICADO':
+                                statusColor = Colors.blue;
+                                break;
+                              default:
+                                statusColor = subtleTextColor;
+                            }
+
+                            return Padding(
+                              padding: EdgeInsets.only(
+                                top: entry.key == 0 ? 0 : 12,
+                              ),
+                              child: _buildResponderRow(
+                                name: nombre,
+                                subtitle: estado,
+                                initials: initials,
+                                status: estado,
+                                statusColor: statusColor,
+                                isDark: isDark,
+                                cardColor: cardColor,
+                                borderColor: borderColor,
+                              ),
+                            );
+                          }),
                       ],
                     ),
                   ),
                 ),
               ],
-            ),
-          ),
-
-          // Header Overlay
-          Positioned(
-            top: 0,
-            left: 0,
-            right: 0,
-            child: Container(
-              padding: EdgeInsets.only(
-                top: MediaQuery.of(context).padding.top + 16,
-                bottom: 16,
-                left: 24,
-                right: 24,
-              ),
-              decoration: BoxDecoration(
-                color: bgColor.withOpacity(0.9),
-                border: Border(bottom: BorderSide(color: borderColor)),
-              ),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Row(
-                    children: [
-                      InkWell(
-                        onTap: () {
-                          if (GoRouter.of(context).canPop()) {
-                            context.pop();
-                          } else {
-                            context.go('/');
-                          }
-                        },
-                        borderRadius: BorderRadius.circular(20),
-                        child: Container(
-                          width: 40,
-                          height: 40,
-                          decoration: BoxDecoration(
-                            color: isDark
-                                ? const Color(0xFF161616)
-                                : Colors.grey.shade100,
-                            shape: BoxShape.circle,
-                          ),
-                          child: Icon(
-                            Icons.chevron_left,
-                            color: subtleTextColor,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            isSuspect ? 'Reporte Vecinal' : 'Alerta Vecinal',
-                            style: TextStyle(
-                              fontSize: 18,
-                              fontWeight: FontWeight.w900,
-                              color: textColor,
-                              height: 1,
-                            ),
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            isSuspect
-                                ? 'REPORTE DE SOSPECHOSO'
-                                : 'EMERGENCIA SOS',
-                            style: TextStyle(
-                              fontSize: 10,
-                              fontWeight: FontWeight.bold,
-                              color: primaryColor,
-                              letterSpacing: 1,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 4,
-                    ),
-                    decoration: BoxDecoration(
-                      color: primaryColor.withOpacity(0.1),
-                      borderRadius: BorderRadius.circular(16),
-                      border: Border.all(color: primaryColor.withOpacity(0.2)),
-                    ),
-                    child: Text(
-                      'ID: #${alert.id.substring(0, 4).toUpperCase()}',
-                      style: TextStyle(
-                        fontSize: 10,
-                        fontWeight: FontWeight.w900,
-                        color: primaryColor,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
             ),
           ),
 
@@ -790,56 +781,6 @@ class _ActiveAlertPageState extends State<ActiveAlertPage>
                     ),
                     const SizedBox(height: 12),
 
-                    // Llamar 911 Button
-                    Material(
-                      color: Colors.transparent,
-                      child: InkWell(
-                        onTap: () {
-                          // Lógica llamar 911
-                        },
-                        borderRadius: BorderRadius.circular(12),
-                        child: Ink(
-                          decoration: BoxDecoration(
-                            color: isDark ? Colors.transparent : Colors.white,
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(
-                              color: isDark
-                                  ? Colors.white.withOpacity(0.3)
-                                  : Colors.grey.shade300,
-                            ),
-                          ),
-                          child: Container(
-                            width: double.infinity,
-                            padding: const EdgeInsets.symmetric(vertical: 14),
-                            child: Row(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Icon(
-                                  Icons.phone,
-                                  color: isDark
-                                      ? Colors.white
-                                      : Colors.blueGrey.shade800,
-                                  size: 20,
-                                ),
-                                const SizedBox(width: 12),
-                                Text(
-                                  'LLAMAR AL 911',
-                                  style: TextStyle(
-                                    fontSize: 14,
-                                    fontWeight: FontWeight.w900,
-                                    color: isDark
-                                        ? Colors.white
-                                        : Colors.blueGrey.shade800,
-                                    letterSpacing: 1,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 12),
 
                     // Acciones Paralelas: Mapas y Grupos
                     Row(
@@ -890,70 +831,9 @@ class _ActiveAlertPageState extends State<ActiveAlertPage>
                             ),
                           ),
                         ),
-                        if (alert.latitud != null &&
-                            alert.longitud != null) ...[
-                          const SizedBox(width: 12),
-                          // Abrir en Google Maps Button
-                          Expanded(
-                            child: Material(
-                              color: Colors.transparent,
-                              child: InkWell(
-                                onTap: () async {
-                                  final url = Uri.parse(
-                                    'https://www.google.com/maps/search/?api=1&query=${alert.latitud},${alert.longitud}',
-                                  );
-                                  try {
-                                    await launchUrl(
-                                      url,
-                                      mode: LaunchMode.externalApplication,
-                                    );
-                                  } catch (e) {
-                                    debugPrint('Error launching map: $e');
-                                  }
-                                },
-                                borderRadius: BorderRadius.circular(12),
-                                child: Ink(
-                                  decoration: BoxDecoration(
-                                    color: secondaryColor.withOpacity(0.1),
-                                    borderRadius: BorderRadius.circular(12),
-                                    border: Border.all(
-                                      color: secondaryColor.withOpacity(0.3),
-                                    ),
-                                  ),
-                                  child: Container(
-                                    padding: const EdgeInsets.symmetric(
-                                      vertical: 14,
-                                    ),
-                                    child: Row(
-                                      mainAxisAlignment:
-                                          MainAxisAlignment.center,
-                                      children: [
-                                        Icon(
-                                          Icons.map,
-                                          color: primaryColor,
-                                          size: 20,
-                                        ),
-                                        const SizedBox(width: 8),
-                                        Text(
-                                          'GOOGLE MAPS',
-                                          style: TextStyle(
-                                            fontSize: 13,
-                                            fontWeight: FontWeight.w900,
-                                            color: primaryColor,
-                                            letterSpacing: 1,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ),
-                        ],
                       ],
                     ),
-                    
+
                     if (canDeactivate) ...[
                       const SizedBox(height: 12),
                       // Desactivar Alerta Button
@@ -964,7 +844,9 @@ class _ActiveAlertPageState extends State<ActiveAlertPage>
                             final confirm = await showDialog<bool>(
                               context: context,
                               builder: (ctx) => AlertDialog(
-                                backgroundColor: isDark ? AppColors.bgDark : Colors.white,
+                                backgroundColor: isDark
+                                    ? AppColors.bgDark
+                                    : Colors.white,
                                 title: Text(
                                   '¿Desactivar alerta?',
                                   style: TextStyle(
@@ -974,19 +856,27 @@ class _ActiveAlertPageState extends State<ActiveAlertPage>
                                 content: Text(
                                   'Esta acción finalizará la alerta para todos los vecinos.',
                                   style: TextStyle(
-                                    color: isDark ? Colors.grey[400] : Colors.black87,
+                                    color: isDark
+                                        ? Colors.grey[400]
+                                        : Colors.black87,
                                   ),
                                 ),
                                 actions: [
                                   TextButton(
-                                    onPressed: () => Navigator.of(ctx).pop(false),
+                                    onPressed: () =>
+                                        Navigator.of(ctx).pop(false),
                                     child: const Text('CANCELAR'),
                                   ),
                                   ElevatedButton(
                                     style: ElevatedButton.styleFrom(
-                                        backgroundColor: primaryColor),
-                                    onPressed: () => Navigator.of(ctx).pop(true),
-                                    child: const Text('DESACTIVAR', style: TextStyle(color: Colors.white)),
+                                      backgroundColor: primaryColor,
+                                    ),
+                                    onPressed: () =>
+                                        Navigator.of(ctx).pop(true),
+                                    child: const Text(
+                                      'DESACTIVAR',
+                                      style: TextStyle(color: Colors.white),
+                                    ),
                                   ),
                                 ],
                               ),

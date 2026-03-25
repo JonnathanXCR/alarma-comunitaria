@@ -16,13 +16,19 @@ class AdminProvider extends ChangeNotifier {
   String? _errorMessage;
   String? get errorMessage => _errorMessage;
 
-  Future<void> fetchPendingUsers(String barrioId) async {
+  Future<void> fetchPendingUsers(String? barrioId, {bool isAdmin = false}) async {
     _isLoading = true;
     _errorMessage = null;
     notifyListeners();
 
     try {
-      _pendingUsers = await _repository.getPendingUsers(barrioId);
+      if (isAdmin) {
+        _pendingUsers = await _repository.getAllPendingUsers();
+      } else if (barrioId != null) {
+        _pendingUsers = await _repository.getPendingUsers(barrioId);
+      } else {
+        _pendingUsers = [];
+      }
     } catch (e) {
       _errorMessage = e.toString();
     } finally {

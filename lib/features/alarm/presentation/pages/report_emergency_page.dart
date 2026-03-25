@@ -1,9 +1,12 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:image_picker/image_picker.dart';
 
 import '../providers/alarm_provider.dart';
+import '../../domain/entities/alert.dart';
 
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/globals.dart';
@@ -23,6 +26,8 @@ class _ReportEmergencyPageState extends State<ReportEmergencyPage> {
   final _detailsController = TextEditingController();
   bool _hasText = false;
   bool _isGettingLocation = false;
+  File? _selectedImage;
+  TipoEmergencia _selectedTipo = TipoEmergencia.roboVia;
 
   @override
   void initState() {
@@ -47,6 +52,32 @@ class _ReportEmergencyPageState extends State<ReportEmergencyPage> {
     _quePasoController.dispose();
     _detailsController.dispose();
     super.dispose();
+  }
+
+  Future<void> _takePhoto() async {
+    try {
+      final picker = ImagePicker();
+      final pickedFile = await picker.pickImage(
+        source: ImageSource.camera,
+        imageQuality: 70,
+        maxWidth: 1024,
+      );
+
+      if (pickedFile != null) {
+        setState(() {
+          _selectedImage = File(pickedFile.path);
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error al capturar la foto: $e'),
+            backgroundColor: AppColors.redBright,
+          ),
+        );
+      }
+    }
   }
 
   void _submitReport() async {
@@ -212,11 +243,13 @@ class _ReportEmergencyPageState extends State<ReportEmergencyPage> {
 
     final provider = context.read<AlarmProvider>();
     await provider.sendEmergencyAlert(
+      tipo: widget.isSuspect ? TipoEmergencia.sospechoso : _selectedTipo,
       lugar: _lugarController.text.trim(),
       quePaso: _quePasoController.text.trim(),
       descripcion: _detailsController.text.trim(),
       latitud: position?.latitude,
       longitud: position?.longitude,
+      imageFile: _selectedImage,
     );
 
     if (!mounted) return;
@@ -296,69 +329,6 @@ class _ReportEmergencyPageState extends State<ReportEmergencyPage> {
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
                       const SizedBox(height: 24),
-
-                      // Header (Type of Report)
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 16,
-                          vertical: 12,
-                        ),
-                        decoration: BoxDecoration(
-                          color: AppColors.surface,
-                          borderRadius: BorderRadius.circular(16),
-                          border: Border.all(color: AppColors.border),
-                        ),
-                        child: Row(
-                          children: [
-                            Container(
-                              width: 40,
-                              height: 40,
-                              decoration: BoxDecoration(
-                                color: secondaryColor,
-                                shape: BoxShape.circle,
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: secondaryColor.withValues(
-                                      alpha: 0.4,
-                                    ),
-                                    blurRadius: 10,
-                                    spreadRadius: 1,
-                                  ),
-                                ],
-                              ),
-                              child: Icon(icon, color: Colors.white, size: 22),
-                            ),
-                            const SizedBox(width: 14),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    'TIPO DE ALERTA',
-                                    style: TextStyle(
-                                      color: AppColors.textSecondary,
-                                      fontSize: 10,
-                                      fontWeight: FontWeight.w600,
-                                      letterSpacing: 1.5,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 2),
-                                  Text(
-                                    title,
-                                    style: TextStyle(
-                                      color: primaryColor,
-                                      fontSize: 18,
-                                      fontWeight: FontWeight.w800,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-
-                      const SizedBox(height: 24),
                       const SizedBox(height: 12),
 
                       Container(
@@ -372,21 +342,44 @@ class _ReportEmergencyPageState extends State<ReportEmergencyPage> {
                           crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
                             Text(
-                              'Detalles Adicionales',
+                              title,
                               style: TextStyle(
-                                color: AppColors.textPrimary,
-                                fontSize: 16,
-                                fontWeight: FontWeight.w700,
+                                color: primaryColor,
+                                fontSize: 18,
+                                fontWeight: FontWeight.w800,
                               ),
                             ),
 
                             const SizedBox(height: 20),
 
+                            if (!widget.isSuspect) ...[
+                              const Text(
+                                'Tipo de Emergencia',
+                                style: TextStyle(
+                                  color: AppColors.textPrimary,
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                              const SizedBox(height: 10),
+                              Wrap(
+                                spacing: 10,
+                                runSpacing: 10,
+                                children: [
+                                  _buildTypeButton('Robo en la Vía', TipoEmergencia.roboVia, primaryColor),
+                                  _buildTypeButton('Robo de Casa', TipoEmergencia.roboCasa, primaryColor),
+                                  _buildTypeButton('Secuestro', TipoEmergencia.secuestro, primaryColor),
+                                  _buildTypeButton('Asesinato', TipoEmergencia.asesinato, primaryColor),
+                                ],
+                              ),
+                              const SizedBox(height: 16),
+                            ],
+
                             if (!_hasText)
                               Padding(
                                 padding: const EdgeInsets.only(bottom: 12.0),
                                 child: Text(
-                                  '* Debes completar todos los campos para habilitar el envío.',
+                                  '* COMPLETA TODOS LOS CAMPOS PARA PODER ENVIAR EL REPORTE.',
                                   style: TextStyle(
                                     color: AppColors.red.withValues(alpha: 0.8),
                                     fontSize: 14,
@@ -396,7 +389,7 @@ class _ReportEmergencyPageState extends State<ReportEmergencyPage> {
                               ),
 
                             Text(
-                              'Lugar',
+                              'Dirección - Lugar de Referencia \n Se enviara la ubicación GPS',
                               style: const TextStyle(
                                 color: AppColors.textPrimary,
                                 fontSize: 13,
@@ -411,7 +404,7 @@ class _ReportEmergencyPageState extends State<ReportEmergencyPage> {
                             const SizedBox(height: 16),
 
                             Text(
-                              '¿Qué pasó?',
+                              '¿Cual es la emergencia?',
                               style: const TextStyle(
                                 color: AppColors.textPrimary,
                                 fontSize: 13,
@@ -426,7 +419,7 @@ class _ReportEmergencyPageState extends State<ReportEmergencyPage> {
                             const SizedBox(height: 16),
 
                             Text(
-                              'Descripción extra',
+                              'Datos del Sospechoso',
                               style: const TextStyle(
                                 color: AppColors.textPrimary,
                                 fontSize: 13,
@@ -439,15 +432,94 @@ class _ReportEmergencyPageState extends State<ReportEmergencyPage> {
                               controller: _detailsController,
                               maxLines: 4,
                               hintText: widget.isSuspect
-                                  ? 'Aspecto del sospechoso, hacia dónde fue...'
-                                  : 'Detalles adicionales, número de heridos...',
+                                  ? 'Características del sospechoso, Ropa  \n Hacia dónde se dirige\n Vehículo: Carro/Moto,  Color, Tipo, Placa'
+                                  : 'Características del sospechoso, Ropa  \n Hacia dónde se dirige\n Vehículo: Carro/Moto,  Color, Tipo, Placa',
                             ),
+                            const SizedBox(height: 16),
+
+                            Text(
+                              'Foto Adjunta (Opcional)',
+                              style: const TextStyle(
+                                color: AppColors.textPrimary,
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            const SizedBox(height: 6),
+                            if (_selectedImage != null)
+                              Stack(
+                                children: [
+                                  ClipRRect(
+                                    borderRadius: BorderRadius.circular(12),
+                                    child: Image.file(
+                                      _selectedImage!,
+                                      height: 150,
+                                      width: double.infinity,
+                                      fit: BoxFit.cover,
+                                    ),
+                                  ),
+                                  Positioned(
+                                    top: 8,
+                                    right: 8,
+                                    child: GestureDetector(
+                                      onTap: () =>
+                                          setState(() => _selectedImage = null),
+                                      child: Container(
+                                        padding: const EdgeInsets.all(6),
+                                        decoration: BoxDecoration(
+                                          color: Colors.black.withOpacity(0.6),
+                                          shape: BoxShape.circle,
+                                        ),
+                                        child: const Icon(
+                                          Icons.close,
+                                          color: Colors.white,
+                                          size: 18,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              )
+                            else
+                              OutlinedButton.icon(
+                                onPressed: _takePhoto,
+                                icon: Icon(
+                                  Icons.camera_alt,
+                                  color: primaryColor,
+                                ),
+                                label: Text(
+                                  'Tomar Foto',
+                                  style: TextStyle(color: primaryColor),
+                                ),
+                                style: OutlinedButton.styleFrom(
+                                  padding: const EdgeInsets.symmetric(
+                                    vertical: 12,
+                                  ),
+                                  side: BorderSide(
+                                    color: primaryColor.withOpacity(0.3),
+                                  ),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                ),
+                              ),
                             const SizedBox(height: 12),
                           ],
                         ),
                       ),
                       const SizedBox(height: 24),
+
                       // Acción Botones (Paralelos)
+                      const Text(
+                        'Enviar más información al grupo de WhatsApp',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          color: AppColors.textSecondary,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                      const SizedBox(height: 16),
                       Row(
                         children: [
                           Expanded(
@@ -517,6 +589,37 @@ class _ReportEmergencyPageState extends State<ReportEmergencyPage> {
                 ),
               ],
             ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTypeButton(String text, TipoEmergencia type, Color primaryColor) {
+    final isSelected = _selectedTipo == type;
+    return GestureDetector(
+      onTap: () {
+        setState(() {
+          _selectedTipo = type;
+        });
+      },
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        decoration: BoxDecoration(
+          color: isSelected ? primaryColor : AppColors.surface,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: isSelected ? primaryColor : AppColors.border,
+            width: 1.5,
+          ),
+        ),
+        child: Text(
+          text,
+          style: TextStyle(
+            color: isSelected ? Colors.white : AppColors.textPrimary,
+            fontSize: 13,
+            fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
           ),
         ),
       ),

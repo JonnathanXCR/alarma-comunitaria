@@ -13,7 +13,7 @@
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>
-	<string>alarma_comunitaria</string>
+	<string>Alarma Comunitaria</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
@@ -49,6 +49,10 @@
 	<string>Esta aplicación requiere acceso a la ubicación para el envío de alertas de emergencia precisas y asistencia de los vecinos.</string>
 	<key>NSLocationAlwaysUsageDescription</key>
 	<string>Esta aplicación requiere acceso a la ubicación para funcionar en segundo plano durante el reporte de emergencias.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>Esta aplicación requiere acceso a la cámara para que puedas adjuntar fotos a tus reportes de emergencia.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Esta aplicación requiere acceso a la galería para que puedas adjuntar fotos a tus reportes de emergencia.</string>
 	<!-- Supabase Deep Linking -->
 	<key>CFBundleURLTypes</key>
 	<array>
@@ -60,6 +64,11 @@
 				<string>io.supabase.alarma</string>
 			</array>
 		</dict>
+	</array>
+	<key>LSApplicationQueriesSchemes</key>
+	<array>
+		<string>https</string>
+		<string>http</string>
 	</array>
 </dict>
 </plist>

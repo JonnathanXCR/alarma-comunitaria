@@ -7,14 +7,16 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../providers/alarm_provider.dart';
 import '../../../auth/presentation/providers/auth_provider.dart';
+import '../../../auth/presentation/pages/pending_approval_page.dart';
 import '../../../profile/presentation/pages/profile_page.dart';
 import 'report_emergency_page.dart';
 import 'active_alert_page.dart';
 import 'inactive_alert_page.dart';
 import '../../../../core/globals.dart';
 import '../../../../core/theme/app_colors.dart';
-import '../../../admin/presentation/pages/approval_page.dart';
 import '../../../admin/presentation/pages/neighbors_page.dart';
+import '../../../admin/presentation/pages/missing_persons_page.dart';
+import '../../../../core/widgets/app_background.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -27,8 +29,11 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   int _currentIndex = 0;
 
   // ── Animación del pulso del botón SOS ──
-  late final AnimationController _pulseController;
-  late final Animation<double> _pulseAnimation;
+  late final AnimationController _pulseController;   // onda 1 (primera)
+  late final AnimationController _pulse2Controller;  // onda 2 (desfasada)
+  late final Animation<double> _pulseAnimation;      // breathing del botón
+  late final Animation<double> _ring1Animation;      // expansión onda 1
+  late final Animation<double> _ring2Animation;      // expansión onda 2
 
   // ── Progreso del press prolongado ──
   late final AnimationController _holdController;
@@ -37,19 +42,39 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   @override
   void initState() {
     super.initState();
+    _currentIndex = globalHasActiveAlert.value ? 1 : 0;
 
+    // Onda 1: ciclo completo de 2 s
     _pulseController = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 1800),
-    )..repeat(reverse: true);
+      duration: const Duration(milliseconds: 2000),
+    )..repeat();
 
-    _pulseAnimation = Tween<double>(begin: 0.92, end: 1.0).animate(
+    // Onda 2: misma duración, arranca desfasada 1 s
+    _pulse2Controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 2000),
+    )..forward(from: 0.5);
+    _pulse2Controller.addStatusListener((s) {
+      if (s == AnimationStatus.completed) _pulse2Controller.repeat();
+    });
+
+    // Breathing: escala del botón principal (0.97 → 1.0)
+    _pulseAnimation = Tween<double>(begin: 0.97, end: 1.0).animate(
       CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut),
+    );
+
+    // Expansión de los anillos (0 → 1)
+    _ring1Animation = Tween<double>(begin: 0.0, end: 1.0).animate(
+      CurvedAnimation(parent: _pulseController, curve: Curves.easeOut),
+    );
+    _ring2Animation = Tween<double>(begin: 0.0, end: 1.0).animate(
+      CurvedAnimation(parent: _pulse2Controller, curve: Curves.easeOut),
     );
 
     _holdController = AnimationController(
       vsync: this,
-      duration: const Duration(seconds: 3),
+      duration: const Duration(milliseconds: 1500),
     );
 
     _holdController.addStatusListener((status) {
@@ -76,41 +101,9 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   void dispose() {
     globalHasActiveAlert.removeListener(_onGlobalAlertChanged);
     _pulseController.dispose();
+    _pulse2Controller.dispose();
     _holdController.dispose();
     super.dispose();
-  }
-
-  void _checkApprovalAndProceed(dynamic user, VoidCallback onProceed) {
-    if (user != null && !user.isAprobado) {
-      showDialog(
-        context: context,
-        builder: (context) => AlertDialog(
-          backgroundColor: AppColors.surface,
-          title: const Text(
-            'Perfil Pendiente',
-            style: TextStyle(color: AppColors.textPrimary),
-          ),
-          content: const Text(
-            'Tu perfil aún está en estado de aprobación. Una vez que un administrador lo apruebe, podrás enviar alertas.',
-            style: TextStyle(color: AppColors.textSecondary, fontSize: 13),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: const Text(
-                'Entendido',
-                style: TextStyle(
-                  color: AppColors.redBright,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-            ),
-          ],
-        ),
-      );
-      return;
-    }
-    onProceed();
   }
 
   void _triggerSOS() {
@@ -134,12 +127,16 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     final alarmProvider = context.watch<AlarmProvider>();
     final user = authProvider.user;
 
+    if (user != null && !user.isAprobado) {
+      return const PendingApprovalPage();
+    }
+
     return AnnotatedRegion<SystemUiOverlayStyle>(
       value: SystemUiOverlayStyle.light,
       child: Scaffold(
         backgroundColor: AppColors.bg,
-        body: SafeArea(
-          child: _buildBody(user, alarmProvider),
+        body: AppBackground(
+          child: SafeArea(child: _buildBody(user, alarmProvider)),
         ),
         bottomNavigationBar: _buildBottomNav(user),
       ),
@@ -149,7 +146,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   // ────────────────────────────────────────────
   //  Manejo dinámico de vistas
   // ────────────────────────────────────────────
-  
+
   bool _canApproveUsers(dynamic user) {
     if (user == null) return false;
     final rol = user.rol;
@@ -157,8 +154,14 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   }
 
   Widget _buildBody(dynamic user, AlarmProvider alarmProvider) {
-    if (_currentIndex == 0) return _buildSOSPage(user, alarmProvider);
-    if (_currentIndex == 1) {
+    final showAdminTabs = _canApproveUsers(user);
+    final maxIndex = showAdminTabs ? 4 : 3;
+
+    // Ajustar el índice si el rol del usuario cambió
+    final int safeIndex = _currentIndex > maxIndex ? 0 : _currentIndex;
+
+    if (safeIndex == 0) return _buildSOSPage(user, alarmProvider);
+    if (safeIndex == 1) {
       return ValueListenableBuilder<bool>(
         valueListenable: globalHasActiveAlert,
         builder: (context, hasAlert, _) {
@@ -174,23 +177,16 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
         },
       );
     }
-    final showAdminTabs = _canApproveUsers(user);
 
-    if (_currentIndex == 2) {
-      return showAdminTabs
-          ? const NeighborsPage()
-          : const ProfilePage();
-    }
-    
     if (showAdminTabs) {
-      if (_currentIndex == 3) {
-        return const ApprovalPage();
-      }
-      if (_currentIndex == 4) {
-        return const ProfilePage();
-      }
+      if (safeIndex == 2) return const NeighborsPage();
+      if (safeIndex == 3) return const MissingPersonsPage();
+      if (safeIndex == 4) return const ProfilePage();
+    } else {
+      if (safeIndex == 2) return const MissingPersonsPage();
+      if (safeIndex == 3) return const ProfilePage();
     }
-    
+
     return const SizedBox.shrink();
   }
 
@@ -198,197 +194,139 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   //  Página principal SOS
   // ────────────────────────────────────────────
   Widget _buildSOSPage(dynamic user, AlarmProvider alarmProvider) {
-    return SingleChildScrollView(
-      padding: const EdgeInsets.symmetric(horizontal: 20),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          const SizedBox(height: 12),
-
-          // ── Header ──
-          _buildHeader(user),
-
-          const SizedBox(height: 8),
-
-          // ── Ubicación ──
-          _buildLocationRow(user),
-
-          // ── Banner Alerta Activa ──
-          ValueListenableBuilder<bool>(
-            valueListenable: globalHasActiveAlert,
-            builder: (context, hasAlert, child) {
-              if (!hasAlert) return const SizedBox.shrink();
-              return GestureDetector(
-                onTap: () => setState(() => _currentIndex = 1),
-                child: Container(
-                  margin: const EdgeInsets.only(top: 16),
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: AppColors.redLight.withValues(alpha: 0.1),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(
-                      color: AppColors.redLight.withValues(alpha: 0.3),
-                    ),
-                  ),
-                  child: const Row(
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        return SingleChildScrollView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          child: ConstrainedBox(
+            constraints: BoxConstraints(minHeight: constraints.maxHeight),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 20),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  // ── Sección Superior ──
+                  Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      Icon(
-                        Icons.warning_amber_rounded,
-                        color: AppColors.redLight,
-                      ),
-                      SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'Alerta Activa',
-                              style: TextStyle(
-                                color: AppColors.redLight,
-                                fontWeight: FontWeight.bold,
-                                fontSize: 13,
+                      const SizedBox(height: 12),
+                      _buildLocationRow(user),
+                      ValueListenableBuilder<bool>(
+                        valueListenable: globalHasActiveAlert,
+                        builder: (context, hasAlert, child) {
+                          if (!hasAlert) return const SizedBox.shrink();
+                          return GestureDetector(
+                            onTap: () => setState(() => _currentIndex = 1),
+                            child: Container(
+                              margin: const EdgeInsets.only(top: 12),
+                              padding: const EdgeInsets.all(12),
+                              decoration: BoxDecoration(
+                                color: AppColors.redLight.withOpacity(0.1),
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(
+                                  color: AppColors.redLight.withOpacity(0.3),
+                                ),
+                              ),
+                              child: Row(
+                                children: [
+                                  Image.asset(
+                                    'assets/images/logo.png',
+                                    width: 24,
+                                    height: 24,
+                                    fit: BoxFit.contain,
+                                  ),
+                                  const SizedBox(width: 12),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: const [
+                                        Text(
+                                          'Alerta Activa',
+                                          style: TextStyle(
+                                            color: AppColors.redLight,
+                                            fontWeight: FontWeight.bold,
+                                            fontSize: 13,
+                                          ),
+                                        ),
+                                        SizedBox(height: 2),
+                                        Text(
+                                          'Hay una emergencia en curso. Toca para ver.',
+                                          style: TextStyle(
+                                            color: AppColors.textPrimary,
+                                            fontSize: 11,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  const Icon(
+                                    Icons.chevron_right,
+                                    color: AppColors.redLight,
+                                    size: 18,
+                                  ),
+                                ],
                               ),
                             ),
-                            SizedBox(height: 2),
-                            Text(
-                              'Hay una emergencia en curso. Toca para ver.',
-                              style: TextStyle(
-                                color: AppColors.textPrimary,
-                                fontSize: 11,
-                              ),
-                            ),
-                          ],
-                        ),
+                          );
+                        },
                       ),
-                      Icon(Icons.chevron_right, color: AppColors.redLight),
                     ],
                   ),
-                ),
-              );
-            },
-          ),
 
-          const SizedBox(height: 32),
+                  // ── Sección Central ──
+                  Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const SizedBox(height: 24),
+                      RepaintBoundary(child: _buildSOSButton(alarmProvider)),
+                      const SizedBox(height: 12),
+                      const Text(
+                        'Mantén presionado para activar la alarma',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          color: AppColors.textSecondary,
+                          fontSize: 13,
+                          letterSpacing: 0.2,
+                          height: 1.5,
+                        ),
+                      ),
+                      const SizedBox(height: 24),
+                    ],
+                  ),
 
-          // ── Botón SOS ──
-          _buildSOSButton(alarmProvider),
-
-          const SizedBox(height: 16),
-
-          // ── Texto instrucción ──
-          const Text(
-            'Presiona prolongadamente para\nactivar alerta crítica',
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              color: AppColors.textSecondary,
-              fontSize: 13,
-              height: 1.4,
+                  // ── Sección Inferior ──
+                  Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Container(
+                        height: 1,
+                        margin: const EdgeInsets.symmetric(vertical: 4),
+                        decoration: const BoxDecoration(
+                          gradient: LinearGradient(
+                            colors: [
+                              Colors.transparent,
+                              AppColors.border,
+                              Colors.transparent,
+                            ],
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      _buildSuspectSlider(alarmProvider),
+                      const SizedBox(height: 20),
+                      _buildResponseServices(),
+                      const SizedBox(height: 24),
+                    ],
+                  ),
+                ],
+              ),
             ),
           ),
-
-          const SizedBox(height: 28),
-
-          // ── Slider sospechoso ──
-          _buildSuspectSlider(alarmProvider),
-
-          const SizedBox(height: 32),
-
-          // ── Servicios de respuesta ──
-          _buildResponseServices(),
-
-          const SizedBox(height: 24),
-        ],
-      ),
-    );
-  }
-
-  // ── Header: Centro de Control / Emergencia SOS ──
-  Widget _buildHeader(dynamic user) {
-    return Row(
-      children: [
-        // Escudo rojo
-        Container(
-          width: 42,
-          height: 42,
-          decoration: BoxDecoration(
-            color: AppColors.red,
-            shape: BoxShape.circle,
-            boxShadow: [
-              BoxShadow(
-                color: AppColors.red.withValues(alpha: 0.4),
-                blurRadius: 12,
-                spreadRadius: 1,
-              ),
-            ],
-          ),
-          child: const Icon(
-            Icons.shield_rounded,
-            color: Colors.white,
-            size: 22,
-          ),
-        ),
-        const SizedBox(width: 12),
-        // Textos
-        const Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'CENTRO DE CONTROL',
-                style: TextStyle(
-                  color: AppColors.textSecondary,
-                  fontSize: 10,
-                  fontWeight: FontWeight.w600,
-                  letterSpacing: 1.5,
-                ),
-              ),
-              SizedBox(height: 2),
-              Text(
-                'Emergencia SOS',
-                style: TextStyle(
-                  color: AppColors.textPrimary,
-                  fontSize: 20,
-                  fontWeight: FontWeight.w800,
-                ),
-              ),
-            ],
-          ),
-        ),
-        // Badge GPS + Logout
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-          decoration: BoxDecoration(
-            color: AppColors.surfaceLight,
-            borderRadius: BorderRadius.circular(20),
-            border: Border.all(color: AppColors.border),
-          ),
-          child: const Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(Icons.gps_fixed, color: AppColors.green, size: 12),
-              SizedBox(width: 4),
-              Text(
-                'GPS ACTIVO',
-                style: TextStyle(
-                  color: AppColors.orange,
-                  fontSize: 9,
-                  fontWeight: FontWeight.w700,
-                  letterSpacing: 0.5,
-                ),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(width: 8),
-        GestureDetector(
-          onTap: () => context.read<AuthProvider>().logout(),
-          child: const Icon(
-            Icons.logout_rounded,
-            color: AppColors.textSecondary,
-            size: 20,
-          ),
-        ),
-      ],
+        );
+      },
     );
   }
 
@@ -407,153 +345,276 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
           const Icon(Icons.location_on, color: AppColors.redLight, size: 16),
           const SizedBox(width: 8),
           Expanded(
-            child: Text(
-              user?.direccion ?? 'Ubicación no disponible',
-              style: const TextStyle(
-                color: AppColors.textPrimary,
-                fontSize: 12,
-                fontWeight: FontWeight.w500,
-              ),
-              overflow: TextOverflow.ellipsis,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  user?.barrioNombre ?? 'Barrio no asignado',
+                  style: const TextStyle(
+                    color: AppColors.textPrimary,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                  ),
+                  overflow: TextOverflow.ellipsis,
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  user?.nombreCompleto ?? 'Usuario no identificado',
+                  style: const TextStyle(
+                    color: AppColors.textSecondary,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w400,
+                  ),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ],
             ),
           ),
-          GestureDetector(
-            onTap: () {
-              /* TODO: cambiar ubicación */
-            },
-            child: const Text(
-              'CAMBIAR',
-              style: TextStyle(
-                color: AppColors.redLight,
-                fontSize: 10,
-                fontWeight: FontWeight.w700,
-                letterSpacing: 0.8,
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 1,
+                height: 20,
+                color: AppColors.border,
+                margin: const EdgeInsets.symmetric(horizontal: 10),
               ),
-            ),
+              const Icon(
+                Icons.check_circle_rounded,
+                color: AppColors.success,
+                size: 14,
+              ),
+              const SizedBox(width: 4),
+              const Text(
+                'SISTEMA EN LÍNEA',
+                style: TextStyle(
+                  color: AppColors.success,
+                  fontSize: 10,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: 0.5,
+                ),
+              ),
+            ],
           ),
         ],
       ),
     );
   }
 
-  // ── Botón SOS con animación pulsante ──
+  // ── Botón SOS con animación pulsante (radar/ripple) ──
   Widget _buildSOSButton(AlarmProvider alarmProvider) {
+    // Tamaño base del botón principal
+    const double btnSize = 220.0;
+    // Tamaño máximo al que se expanden los anillos
+    const double maxRing = 340.0;
+
     return Center(
-      child: AnimatedBuilder(
-        animation: _pulseAnimation,
-        builder: (context, child) {
-          return GestureDetector(
-            onLongPressStart: (_) {
-              final user = context.read<AuthProvider>().user;
-              if (user != null && !user.isAprobado) {
-                _checkApprovalAndProceed(user, () {});
-                return;
-              }
-              HapticFeedback.mediumImpact();
-              setState(() => _isHolding = true);
-              _holdController.forward();
-            },
-            onLongPressEnd: (_) {
-              if (_holdController.status != AnimationStatus.completed) {
-                _holdController.reset();
-                setState(() => _isHolding = false);
-              }
-            },
-            child: Stack(
+      child: SizedBox(
+        width: maxRing,
+        height: maxRing,
+        child: AnimatedBuilder(
+          animation: Listenable.merge([_ring1Animation, _ring2Animation, _pulseAnimation]),
+          builder: (context, child) {
+            final ring1Scale = 1.0 + _ring1Animation.value * ((maxRing - btnSize) / btnSize);
+            final ring1Opacity = (1.0 - _ring1Animation.value).clamp(0.0, 1.0);
+            final ring2Scale = 1.0 + _ring2Animation.value * ((maxRing - btnSize) / btnSize);
+            final ring2Opacity = (1.0 - _ring2Animation.value).clamp(0.0, 1.0);
+
+            return Stack(
               alignment: Alignment.center,
               children: [
-                // Glow exterior
+                // ── Onda de pulso 1 ──
                 Transform.scale(
-                  scale: _pulseAnimation.value,
-                  child: Container(
-                    width: 200,
-                    height: 200,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      boxShadow: [
-                        BoxShadow(
-                          color: AppColors.redBright.withValues(
-                            alpha: _isHolding ? 0.6 : 0.25,
-                          ),
-                          blurRadius: _isHolding ? 60 : 35,
-                          spreadRadius: _isHolding ? 8 : 2,
+                  scale: ring1Scale,
+                  child: Opacity(
+                    opacity: ring1Opacity * (_isHolding ? 0.0 : 0.45),
+                    child: Container(
+                      width: btnSize,
+                      height: btnSize,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        border: Border.all(
+                          color: AppColors.redBright,
+                          width: 2.0,
                         ),
-                      ],
+                      ),
                     ),
                   ),
                 ),
-                // Botón principal
+
+                // ── Onda de pulso 2 (desfasada) ──
+                Transform.scale(
+                  scale: ring2Scale,
+                  child: Opacity(
+                    opacity: ring2Opacity * (_isHolding ? 0.0 : 0.35),
+                    child: Container(
+                      width: btnSize,
+                      height: btnSize,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        border: Border.all(
+                          color: AppColors.redBright,
+                          width: 1.5,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+
+                // ── Glow halo (fijo, solo se intensifica al hacer hold) ──
                 Container(
-                  width: 180,
-                  height: 180,
+                  width: btnSize + 28,
+                  height: btnSize + 28,
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
-                    gradient: RadialGradient(
-                      colors: [
-                        AppColors.redBright,
-                        AppColors.red,
-                        AppColors.red.withValues(alpha: 0.8),
-                      ],
-                      stops: const [0.0, 0.6, 1.0],
-                    ),
                     boxShadow: [
                       BoxShadow(
-                        color: AppColors.red.withValues(alpha: 0.5),
-                        blurRadius: 20,
-                        offset: const Offset(0, 6),
-                      ),
-                    ],
-                  ),
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      const Icon(
-                        Icons.health_and_safety_rounded,
-                        color: Colors.white,
-                        size: 52,
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        alarmProvider.isSending ? 'ENVIANDO...' : 'SOS',
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 16,
-                          fontWeight: FontWeight.w900,
-                          letterSpacing: 3,
+                        color: AppColors.redBright.withOpacity(
+                          _isHolding ? 0.55 : 0.18,
                         ),
-                      ),
-                      const Text(
-                        'MANTENER',
-                        style: TextStyle(
-                          color: Color(0xCCFFFFFF),
-                          fontSize: 9,
-                          fontWeight: FontWeight.w600,
-                          letterSpacing: 1.5,
-                        ),
+                        blurRadius: _isHolding ? 60 : 32,
+                        spreadRadius: _isHolding ? 10 : 0,
                       ),
                     ],
                   ),
                 ),
-                // Progreso del hold
-                if (_isHolding)
-                  AnimatedBuilder(
-                    animation: _holdController,
-                    builder: (context, _) {
-                      return SizedBox(
-                        width: 192,
-                        height: 192,
-                        child: CustomPaint(
-                          painter: _HoldProgressPainter(
-                            progress: _holdController.value,
+
+                // ── Botón principal con efecto breathing ──
+                GestureDetector(
+                  onLongPressStart: (_) {
+                    if (alarmProvider.isSending) return;
+                    HapticFeedback.mediumImpact();
+                    setState(() => _isHolding = true);
+                    _holdController.forward();
+                  },
+                  onLongPressEnd: (_) {
+                    if (alarmProvider.isSending) return;
+                    if (_holdController.status != AnimationStatus.completed) {
+                      _holdController.reset();
+                      setState(() => _isHolding = false);
+                    }
+                  },
+                  child: Transform.scale(
+                    scale: _isHolding ? 1.04 : _pulseAnimation.value,
+                    child: Stack(
+                      alignment: Alignment.center,
+                      children: [
+                        // Círculo principal
+                        Container(
+                          width: btnSize,
+                          height: btnSize,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            gradient: RadialGradient(
+                              colors: [
+                                AppColors.redBright,
+                                AppColors.red,
+                                AppColors.red.withValues(alpha: 0.85),
+                              ],
+                              center: const Alignment(-0.25, -0.25),
+                              radius: 0.85,
+                            ),
+                            boxShadow: [
+                              BoxShadow(
+                                color: AppColors.red.withOpacity(0.55),
+                                blurRadius: _isHolding ? 36 : 20,
+                                offset: const Offset(0, 6),
+                              ),
+                              BoxShadow(
+                                color: Colors.white.withOpacity(0.18),
+                                blurRadius: 10,
+                                spreadRadius: -6,
+                                offset: const Offset(-3, -3),
+                              ),
+                            ],
+                          ),
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              // Logo
+                              Image.asset(
+                                'assets/images/logo.png',
+                                width: 60,
+                                height: 60,
+                                fit: BoxFit.contain,
+                              ),
+                              const SizedBox(height: 10),
+                              // Título principal
+                              Text(
+                                alarmProvider.isSending
+                                    ? 'ENVIANDO...'
+                                    : 'SOS',
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 32,
+                                  fontWeight: FontWeight.w900,
+                                  letterSpacing: 6,
+                                  height: 1.0,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              // Subtítulo acción
+                              Text(
+                                alarmProvider.isSending
+                                    ? 'Por favor espera'
+                                    : 'REPORTAR EMERGENCIA',
+                                textAlign: TextAlign.center,
+                                style: const TextStyle(
+                                  color: Color(0xF0FFFFFF),
+                                  fontSize: 9,
+                                  fontWeight: FontWeight.w700,
+                                  letterSpacing: 2.0,
+                                ),
+                              ),
+                              const SizedBox(height: 12),
+                              // Indicador de instrucción
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 12,
+                                  vertical: 4,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: Colors.white.withOpacity(0.18),
+                                  borderRadius: BorderRadius.circular(20),
+                                ),
+                                child: const Text(
+                                  'MANTÉN PRESIONADO',
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 8,
+                                    fontWeight: FontWeight.w700,
+                                    letterSpacing: 1.5,
+                                  ),
+                                ),
+                              ),
+                            ],
                           ),
                         ),
-                      );
-                    },
+
+                        // ── Arco de progreso del hold ──
+                        if (_isHolding)
+                          AnimatedBuilder(
+                            animation: _holdController,
+                            builder: (context, _) {
+                              return SizedBox(
+                                width: btnSize + 12,
+                                height: btnSize + 12,
+                                child: CustomPaint(
+                                  painter: _HoldProgressPainter(
+                                    progress: _holdController.value,
+                                  ),
+                                ),
+                              );
+                            },
+                          ),
+                      ],
+                    ),
                   ),
+                ),
               ],
-            ),
-          );
-        },
+            );
+          },
+        ),
       ),
     );
   }
@@ -561,14 +622,11 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   Widget _buildSuspectSlider(AlarmProvider alarmProvider) {
     return _SwipeToReportWidget(
       onSwipe: () {
-        final user = context.read<AuthProvider>().user;
-        _checkApprovalAndProceed(user, () {
-          Navigator.of(context).push(
-            MaterialPageRoute(
-              builder: (_) => const ReportEmergencyPage(isSuspect: true),
-            ),
-          );
-        });
+        Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (_) => const ReportEmergencyPage(isSuspect: true),
+          ),
+        );
       },
     );
   }
@@ -645,7 +703,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   // ── Bottom Navigation Bar ──
   Widget _buildBottomNav(dynamic user) {
     final showApprovals = _canApproveUsers(user);
-    
+
     return Container(
       decoration: const BoxDecoration(
         color: AppColors.surface,
@@ -687,13 +745,14 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                 label: 'Vecinos',
               ),
             );
-            items.add(
-              const BottomNavigationBarItem(
-                icon: Icon(Icons.how_to_reg),
-                label: 'Aprobaciones',
-              ),
-            );
           }
+
+          items.add(
+            const BottomNavigationBarItem(
+              icon: Icon(Icons.person_search_rounded),
+              label: 'Desaparecidos',
+            ),
+          );
 
           items.add(
             const BottomNavigationBarItem(
@@ -703,7 +762,9 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
           );
 
           // Asegurarnos que el índice actual no sea mayor a la cantidad de items
-          final validIndex = _currentIndex < items.length ? _currentIndex : items.length - 1;
+          final validIndex = _currentIndex < items.length
+              ? _currentIndex
+              : items.length - 1;
 
           return BottomNavigationBar(
             currentIndex: validIndex,
@@ -836,7 +897,7 @@ class _SwipeToReportWidgetState extends State<_SwipeToReportWidget> {
                     width: thumbSize,
                     height: thumbSize,
                     decoration: const BoxDecoration(
-                      color: AppColors.green,
+                      color: AppColors.orangeBright,
                       shape: BoxShape.circle,
                     ),
                     child: const Icon(

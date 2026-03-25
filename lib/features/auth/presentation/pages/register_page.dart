@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
+import '../../../../app/routes.dart';
 import '../../../../features/neighborhood/presentation/providers/neighborhood_provider.dart';
 import '../providers/auth_provider.dart';
 
@@ -95,8 +96,11 @@ class _RegisterPageState extends State<RegisterPage>
     final neighborhoodProvider = context.read<NeighborhoodProvider>();
     final barrioId = neighborhoodProvider.selected?.id;
 
-    await context.read<AuthProvider>().register(
-      email: _emailController.text.trim(),
+    final authProvider = context.read<AuthProvider>();
+    final email = _emailController.text.trim();
+
+    await authProvider.register(
+      email: email,
       password: _passwordController.text,
       cedula: _cedulaController.text.trim(),
       nombre: _nombreController.text.trim(),
@@ -105,6 +109,10 @@ class _RegisterPageState extends State<RegisterPage>
       direccion: _direccionController.text.trim(),
       barrioId: barrioId,
     );
+
+    if (mounted && authProvider.errorMessage == null && authProvider.successMessage != null) {
+      context.push(AppRoutes.otpVerification, extra: email);
+    }
   }
 
   @override
@@ -226,11 +234,21 @@ class _RegisterPageState extends State<RegisterPage>
                     const SizedBox(height: 8),
                     _StitchField(
                       controller: _cedulaController,
-                      hintText: '10xxxxxxxxx',
+                      hintText: '010xxxxxxx',
                       prefixIcon: Icons.badge_outlined,
                       keyboardType: TextInputType.number,
-                      validator: (v) =>
-                          v == null || v.isEmpty ? 'Requerido' : null,
+                      inputFormatters: [
+                        FilteringTextInputFormatter.digitsOnly,
+                        LengthLimitingTextInputFormatter(10),
+                      ],
+                      validator: (v) {
+                        if (v == null || v.isEmpty) return 'Requerido';
+                        if (v.length != 10) return 'Debe tener 10 dígitos';
+                        if (!_isValidEcuadorianCedula(v)) {
+                          return 'Cédula ecuatoriana inválida';
+                        }
+                        return null;
+                      },
                     ),
 
                     const SizedBox(height: 16),
@@ -282,8 +300,15 @@ class _RegisterPageState extends State<RegisterPage>
                       hintText: '09xxxxxxxx',
                       prefixIcon: Icons.phone_outlined,
                       keyboardType: TextInputType.phone,
-                      validator: (v) =>
-                          v == null || v.isEmpty ? 'Requerido' : null,
+                      inputFormatters: [
+                        FilteringTextInputFormatter.digitsOnly,
+                        LengthLimitingTextInputFormatter(10),
+                      ],
+                      validator: (v) {
+                        if (v == null || v.isEmpty) return 'Requerido';
+                        if (v.length != 10) return 'Debe tener 10 dígitos';
+                        return null;
+                      },
                     ),
 
                     const SizedBox(height: 16),
@@ -513,6 +538,37 @@ class _RegisterPageState extends State<RegisterPage>
       ],
     );
   }
+
+  bool _isValidEcuadorianCedula(String cedula) {
+    if (cedula.length != 10) return false;
+
+    try {
+      final provinceNum = int.parse(cedula.substring(0, 2));
+      if (provinceNum < 1 || (provinceNum > 24 && provinceNum != 30)) {
+        return false;
+      }
+
+      final thirdDigit = int.parse(cedula[2]);
+      if (thirdDigit > 5) return false;
+
+      final coefficients = [2, 1, 2, 1, 2, 1, 2, 1, 2];
+      int sum = 0;
+
+      for (int i = 0; i < 9; i++) {
+        int result = int.parse(cedula[i]) * coefficients[i];
+        if (result >= 10) result -= 9;
+        sum += result;
+      }
+
+      final lastDigit = int.parse(cedula[9]);
+      int checkDigit = 10 - (sum % 10);
+      if (checkDigit == 10) checkDigit = 0;
+
+      return checkDigit == lastDigit;
+    } catch (e) {
+      return false;
+    }
+  }
 }
 
 // ─────────────────────────────────────────────────────────
@@ -594,6 +650,7 @@ class _StitchField extends StatelessWidget {
   final TextInputType keyboardType;
   final Widget? suffixWidget;
   final String? Function(String?)? validator;
+  final List<TextInputFormatter>? inputFormatters;
 
   const _StitchField({
     required this.controller,
@@ -603,6 +660,7 @@ class _StitchField extends StatelessWidget {
     this.keyboardType = TextInputType.text,
     this.suffixWidget,
     this.validator,
+    this.inputFormatters,
   });
 
   static const _surface = Color(0xFF1A1A1A);
@@ -615,6 +673,7 @@ class _StitchField extends StatelessWidget {
       controller: controller,
       obscureText: obscureText,
       keyboardType: keyboardType,
+      inputFormatters: inputFormatters,
       style: const TextStyle(color: Colors.white, fontSize: 15),
       cursorColor: const Color(0xFFD32F2F),
       validator: validator,
@@ -710,7 +769,7 @@ class _BarrioDropdown extends StatelessWidget {
                   child: Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 16),
                     child: Text(
-                      '${b.nombre} • ${b.ciudad}',
+                      '${b.nombre} • ${b.ciudadNombre ?? ''}',
                       style: const TextStyle(color: Colors.white, fontSize: 14),
                     ),
                   ),

@@ -1,0 +1,4 @@
+
+ProcessException: Gradle task assembleDebug failed with exit code 1
+  Command: flutter build apk --debug
+

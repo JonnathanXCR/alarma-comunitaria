@@ -8,6 +8,7 @@ class User extends Equatable {
   final String direccion;
   final String telefono;
   final String? barrioId;
+  final String? barrioNombre;
   final String rol; // 'vecino' | 'supervisor' | 'admin'
   final String estadoAprobacion; // 'pendiente' | 'aprobado' | 'rechazado'
 
@@ -19,6 +20,7 @@ class User extends Equatable {
     required this.direccion,
     required this.telefono,
     this.barrioId,
+    this.barrioNombre,
     this.rol = 'vecino',
     this.estadoAprobacion = 'pendiente',
   });
@@ -36,6 +38,7 @@ class User extends Equatable {
     direccion,
     telefono,
     barrioId,
+    barrioNombre,
     rol,
     estadoAprobacion,
   ];

@@ -19,13 +19,19 @@ class NeighborsProvider extends ChangeNotifier {
   bool get isLoading => _isLoading;
   String? get errorMessage => _errorMessage;
 
-  Future<void> fetchNeighbors(String barrioId) async {
+  Future<void> fetchNeighbors(String? barrioId, {bool isAdmin = false}) async {
     _isLoading = true;
     _errorMessage = null;
     notifyListeners();
 
     try {
-      _allNeighbors = await _repository.getUsersByBarrio(barrioId);
+      if (isAdmin) {
+        _allNeighbors = await _repository.getAllUsers();
+      } else if (barrioId != null) {
+        _allNeighbors = await _repository.getUsersByBarrio(barrioId);
+      } else {
+        _allNeighbors = [];
+      }
       _filterNeighbors();
     } catch (e) {
       _errorMessage = e.toString();

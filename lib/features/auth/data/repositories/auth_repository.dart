@@ -69,6 +69,19 @@ class AuthRepository {
     required String direccion,
     String? barrioId,
   }) async {
+    // 1. Verificar si la cédula ya existe para evitar errores genéricos del trigger.
+    try {
+      final exists = await _client
+          .rpc('check_cedula_exists', params: {'p_cedula': cedula});
+          
+      if (exists == true) {
+        throw const sb.AuthException('La cédula ingresada ya está registrada.');
+      }
+    } catch (e) {
+      if (e is sb.AuthException) rethrow; // propagates our custom exception
+      // ignore other errors, just let the sign up proceed
+    }
+
     final response = await _client.auth.signUp(
       email: email,
       password: password,
@@ -80,7 +93,6 @@ class AuthRepository {
         'telefono': telefono,
         'barrio_id': barrioId ?? '',
       },
-      emailRedirectTo: 'io.supabase.alarma://login-callback/',
     );
 
     if (response.user == null) {
@@ -96,6 +108,24 @@ class AuthRepository {
     }
 
     // Si auto-confirm está habilitado y hay sesión
+    return getPerfil(response.user!.id);
+  }
+
+  /// Verifica el OTP de registro enviado al correo electrónico.
+  Future<User?> verifyOTP({
+    required String email,
+    required String token,
+  }) async {
+    final response = await _client.auth.verifyOTP(
+      email: email,
+      token: token,
+      type: sb.OtpType.signup,
+    );
+
+    if (response.user == null || response.session == null) {
+      throw const sb.AuthException('Código inválido o expirado.');
+    }
+
     return getPerfil(response.user!.id);
   }
 
@@ -123,7 +153,7 @@ class AuthRepository {
   Future<User> getPerfil(String userId) async {
     final data = await _client
         .from('perfiles')
-        .select()
+        .select('*, barrios:barrios!perfiles_barrio_id_fkey(nombre)')
         .eq('id', userId)
         .single();
     return UserModel.fromJson(data);
@@ -159,5 +189,27 @@ class AuthRepository {
         .from('perfiles')
         .update({'fcm_token': token})
         .eq('id', userId);
+  }
+
+  /// Actualiza la información del perfil y establece el estado_aprobacion en pendiente.
+  Future<User> updateProfile({
+    required String userId,
+    required String nombre,
+    required String apellido,
+    required String direccion,
+    required String telefono,
+    String? barrioId,
+  }) async {
+    final payload = {
+      'nombre': nombre,
+      'apellido': apellido,
+      'direccion': direccion,
+      'telefono': telefono,
+      if (barrioId != null) 'barrio_id': barrioId,
+      'estado_aprobacion': 'pendiente',
+    };
+
+    await _client.from('perfiles').update(payload).eq('id', userId);
+    return getPerfil(userId);
   }
 }
