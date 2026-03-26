@@ -205,6 +205,8 @@ class AuthProvider extends ChangeNotifier {
     notifyListeners();
 
     try {
+      final oldBarrioId = _user!.barrioId;
+
       final updatedUser = await _repository.updateProfile(
         userId: _user!.id,
         nombre: nombre,
@@ -215,23 +217,26 @@ class AuthProvider extends ChangeNotifier {
       );
 
       _user = updatedUser;
-      
-      // Reconectar WS si el barrio cambió
-      if (barrioId != null && barrioId != _user!.barrioId) {
+
+      // Reconectar WS y actualizar notificaciones si el barrio cambió
+      if (barrioId != null && barrioId != oldBarrioId) {
         RealtimeService.instance.disconnect();
         _connectRealtime();
+        PushNotificationService.configurarSuscripcionBarrio(barrioId);
       }
 
       // El usuario ahora está pendiente de aprobación, así que el HomePage
       // y el router se encargarán de enviarlo a PendingApprovalPage
       _successMessage = 'Perfil actualizado. Pendiente de aprobación.';
-      _status = AuthStatus.authenticated; // Mantener como autenticado para que HomePage pueda redirigir
+      _status = AuthStatus
+          .authenticated; // Mantener como autenticado para que HomePage pueda redirigir
     } on AuthException catch (e) {
       _status = AuthStatus.error;
       _errorMessage = e.message;
     } catch (e) {
       _status = AuthStatus.error;
-      _errorMessage = 'Error inesperado al actualizar perfil. Intenta de nuevo.';
+      _errorMessage =
+          'Error inesperado al actualizar perfil. Intenta de nuevo.';
     }
     notifyListeners();
   }

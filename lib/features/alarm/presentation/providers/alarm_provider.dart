@@ -100,12 +100,14 @@ class AlarmProvider extends ChangeNotifier {
         globalHasActiveAlert.value = true;
         await _cache.saveAlert(serverAlert);
         await _loadAlertResponses(serverAlert.id);
+        RealtimeService.instance.subscribeToAlertResponses(serverAlert.id);
         _startPolling();
       } else {
         // No hay alerta activa en el servidor
         _activeAlert = null;
         globalHasActiveAlert.value = false;
         await _cache.clearAlert();
+        RealtimeService.instance.unsubscribeFromAlertResponses();
         _stopPolling();
       }
       notifyListeners();
@@ -166,6 +168,7 @@ class AlarmProvider extends ChangeNotifier {
       _activeAlert = alerta;
       globalHasActiveAlert.value = true;
       await _cache.saveAlert(alerta);
+      RealtimeService.instance.subscribeToAlertResponses(alerta.id);
       _startPolling();
     } catch (e, st) {
       print('================= ERROR EN SEND ALERT =================');
@@ -205,6 +208,7 @@ class AlarmProvider extends ChangeNotifier {
     _activeAlert = null;
     globalHasActiveAlert.value = false;
     await _cache.clearAlert();
+    RealtimeService.instance.unsubscribeFromAlertResponses();
     _stopPolling();
     notifyListeners();
   }
@@ -279,8 +283,21 @@ class AlarmProvider extends ChangeNotifier {
       globalHasActiveAlert.value = true;
       await _cache.saveAlert(alerta);
       _alertResponses = []; // Limpiar respuestas de alerta anterior
+      RealtimeService.instance.subscribeToAlertResponses(alerta.id);
       _startPolling();
       notifyListeners();
+    } else if (event.type == WsEventType.alertaActualizada) {
+      if (_activeAlert != null && event.payload['id'] == _activeAlert!.id) {
+        final isActive = event.payload['active'] == true;
+        if (!isActive) {
+          await resolveCurrentAlert();
+        }
+      }
+    } else if (event.type == WsEventType.respuestaNueva || 
+               event.type == WsEventType.respuestaActualizada) {
+      if (_activeAlert != null && event.payload['alerta_id'] == _activeAlert!.id) {
+        await refreshAlertResponses();
+      }
     }
   }
 

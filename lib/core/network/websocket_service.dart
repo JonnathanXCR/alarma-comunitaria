@@ -2,8 +2,14 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../errors/exceptions.dart';
 
-/// Tipos de eventos de alerta recibidos en tiempo real.
-enum WsEventType { alertaNueva, unknown }
+/// Tipos de eventos recibidos en tiempo real.
+enum WsEventType {
+  alertaNueva,
+  alertaActualizada,
+  respuestaNueva,
+  respuestaActualizada,
+  unknown
+}
 
 class WsEvent {
   final WsEventType type;
@@ -20,11 +26,12 @@ class RealtimeService {
   static final RealtimeService instance = RealtimeService._();
 
   RealtimeChannel? _channel;
+  RealtimeChannel? _responsesChannel;
   final List<void Function(WsEvent)> _listeners = [];
 
   bool get isConnected => _channel != null;
 
-  /// Se suscribe a INSERTs de la tabla `alertas` filtrados por [barrioId].
+  /// Se suscribe a INSERTs y UPDATEs de la tabla `alertas` filtrados por [barrioId].
   void connect({required String barrioId}) {
     disconnect();
 
@@ -44,9 +51,24 @@ class RealtimeService {
               type: WsEventType.alertaNueva,
               payload: payload.newRecord,
             );
-            for (final listener in _listeners) {
-              listener(event);
-            }
+            _notifyListeners(event);
+          },
+        )
+        .onPostgresChanges(
+          event: PostgresChangeEvent.update,
+          schema: 'public',
+          table: 'alertas',
+          filter: PostgresChangeFilter(
+            type: PostgresChangeFilterType.eq,
+            column: 'barrio_id',
+            value: barrioId,
+          ),
+          callback: (payload) {
+            final event = WsEvent(
+              type: WsEventType.alertaActualizada,
+              payload: payload.newRecord,
+            );
+            _notifyListeners(event);
           },
         )
         .subscribe((status, [error]) {
@@ -54,6 +76,62 @@ class RealtimeService {
             throw WebSocketException('Realtime error: $error');
           }
         });
+  }
+
+  /// Se suscribe a INSERTs y UPDATEs de la tabla `respuestas_alerta` filtrados por [alertaId].
+  void subscribeToAlertResponses(String alertaId) {
+    unsubscribeFromAlertResponses();
+
+    _responsesChannel = Supabase.instance.client
+        .channel('respuestas-$alertaId')
+        .onPostgresChanges(
+          event: PostgresChangeEvent.insert,
+          schema: 'public',
+          table: 'respuestas_alerta',
+          filter: PostgresChangeFilter(
+            type: PostgresChangeFilterType.eq,
+            column: 'alerta_id',
+            value: alertaId,
+          ),
+          callback: (payload) {
+            final event = WsEvent(
+              type: WsEventType.respuestaNueva,
+              payload: payload.newRecord,
+            );
+            _notifyListeners(event);
+          },
+        )
+        .onPostgresChanges(
+          event: PostgresChangeEvent.update,
+          schema: 'public',
+          table: 'respuestas_alerta',
+          filter: PostgresChangeFilter(
+            type: PostgresChangeFilterType.eq,
+            column: 'alerta_id',
+            value: alertaId,
+          ),
+          callback: (payload) {
+            final event = WsEvent(
+              type: WsEventType.respuestaActualizada,
+              payload: payload.newRecord,
+            );
+            _notifyListeners(event);
+          },
+        )
+        .subscribe();
+  }
+
+  void unsubscribeFromAlertResponses() {
+    if (_responsesChannel != null) {
+      Supabase.instance.client.removeChannel(_responsesChannel!);
+      _responsesChannel = null;
+    }
+  }
+
+  void _notifyListeners(WsEvent event) {
+    for (final listener in _listeners) {
+      listener(event);
+    }
   }
 
   /// Registra un listener que será llamado cuando llegue un evento.
@@ -65,11 +143,12 @@ class RealtimeService {
     _listeners.remove(listener);
   }
 
-  /// Cancela la suscripción al canal actual.
+  /// Cancela la suscripción a todos los canales actuales.
   void disconnect() {
     if (_channel != null) {
       Supabase.instance.client.removeChannel(_channel!);
       _channel = null;
     }
+    unsubscribeFromAlertResponses();
   }
 }
