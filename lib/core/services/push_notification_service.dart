@@ -2,77 +2,82 @@ import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
+import 'package:alarm/alarm.dart' as alarm_pkg;
 import '../globals.dart';
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Constantes del canal – centralizadas para evitar inconsistencias.
+// IMPORTANTE: Cambiar el channelId obliga a Android a recrear el canal,
+// aplicando el nuevo sonido/importancia a TODOS los usuarios.
+// ─────────────────────────────────────────────────────────────────────────────
+// Constants removed since alarm package is used
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Disparador de la alarma con el package 'alarm'
+// ─────────────────────────────────────────────────────────────────────────────
+Future<void> _triggerAlarm(String title, String body) async {
+  try {
+    // Asegurar que el plugin esté inicializado en contextos de background
+    await alarm_pkg.Alarm.init();
+
+    final alarmSettings = alarm_pkg.AlarmSettings(
+      id: 42,
+      dateTime: DateTime.now().add(const Duration(seconds: 1)),
+      assetAudioPath: 'assets/audio/alarma.mp3',
+      loopAudio: true,
+      vibrate: true,
+      volumeSettings: const alarm_pkg.VolumeSettings.fixed(
+        volume: 1.0,
+        volumeEnforced: true,
+      ),
+      notificationSettings: alarm_pkg.NotificationSettings(
+        title: title,
+        body: body,
+        stopButton: 'Abrir App',
+      ),
+    );
+
+    await alarm_pkg.Alarm.set(alarmSettings: alarmSettings);
+    if (kDebugMode) {
+      print('[FCM] Alarma disparada correctamente.');
+    }
+  } catch (e, st) {
+    if (kDebugMode) {
+      print('[FCM] ERROR AL DISPARAR ALARMA: $e');
+      print(st);
+    }
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Background handler (top-level, fuera de la clase)
+// ─────────────────────────────────────────────────────────────────────────────
 @pragma('vm:entry-point')
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
-  // Manejar mensaje en background
   if (kDebugMode) {
-    print("Handling a background message: ${message.messageId}");
+    print('[FCM] Background message: ${message.messageId}');
   }
 
-  // Marcar que hay alerta activa en el caché local
-  // Esto permite que al abrir la app se sepa que hay una alerta pendiente
+  // Guardar flag en preferencias locales para que la app lo lea al abrirse.
   try {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool('has_active_alert', true);
   } catch (_) {}
 
-  final FlutterLocalNotificationsPlugin localNotif =
-      FlutterLocalNotificationsPlugin();
+  // (Removed _kChannel initialization)
 
-  const AndroidNotificationChannel channel = AndroidNotificationChannel(
-    'emergency_alarm_channel_3', // id updated to bypass caching
-    'Emergency Alarms', // name
-    description:
-        'This channel is used for community emergency alerts.', // description
-    importance: Importance.max,
-    playSound: true,
-    sound: RawResourceAndroidNotificationSound('alarma'),
-    enableVibration: true,
-  );
+  final String title =
+      message.notification?.title ?? message.data['title'] ?? '⚠️ Emergencia reportada!';
+  final String body =
+      message.notification?.body ?? message.data['body'] ?? 'Alerta comunitaria recibida.';
 
-  await localNotif
-      .resolvePlatformSpecificImplementation<
-          AndroidFlutterLocalNotificationsPlugin>()
-      ?.createNotificationChannel(channel);
-
-  String title = message.notification?.title ??
-      message.data['title'] ??
-      '⚠️ Emergencia reportada!';
-  String body = message.notification?.body ??
-      message.data['body'] ??
-      'Alerta comunitaria recibida.';
-
-  await localNotif.show(
-    message.hashCode,
-    title,
-    body,
-    NotificationDetails(
-      android: AndroidNotificationDetails(
-        channel.id,
-        channel.name,
-        channelDescription: channel.description,
-        icon: '@mipmap/ic_launcher',
-        priority: Priority.max,
-        fullScreenIntent: true,
-        playSound: true,
-        sound: const RawResourceAndroidNotificationSound('alarma'),
-        enableVibration: true,
-        audioAttributesUsage: AudioAttributesUsage.alarm,
-        additionalFlags: Int32List.fromList(<int>[4]), // FLAG_INSISTENT para que el sonido se repita
-      ),
-      iOS: const DarwinNotificationDetails(
-        presentSound: true,
-        presentAlert: true,
-        presentBadge: true,
-      ),
-    ),
-  );
+  await _triggerAlarm(title, body);
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Servicio principal
+// ─────────────────────────────────────────────────────────────────────────────
 class PushNotificationService {
   static final FirebaseMessaging _firebaseMessaging =
       FirebaseMessaging.instance;
@@ -80,9 +85,9 @@ class PushNotificationService {
       FlutterLocalNotificationsPlugin();
 
   static Future<void> initialize() async {
-    // 1. Configurar notificaciones locales para Android (foreground)
+    // 1. Configurar notificaciones locales
     const AndroidInitializationSettings initializationSettingsAndroid =
-        AndroidInitializationSettings('@mipmap/ic_launcher');
+        AndroidInitializationSettings('@mipmap/launcher_icon');
 
     const DarwinInitializationSettings initializationSettingsIOS =
         DarwinInitializationSettings(
@@ -91,35 +96,22 @@ class PushNotificationService {
           requestSoundPermission: true,
         );
 
-    const AndroidNotificationChannel channel = AndroidNotificationChannel(
-      'emergency_alarm_channel_3', // id updated to bypass caching
-      'Emergency Alarms', // name
-      description:
-          'This channel is used for community emergency alerts.', // description
-      importance: Importance.max,
-      playSound: true,
-      sound: RawResourceAndroidNotificationSound('alarma'),
-      enableVibration: true,
-    );
+    // (Removed _kChannel initialization since alarm package handles its own notification)
 
-    await _localNotifications
-        .resolvePlatformSpecificImplementation<
-          AndroidFlutterLocalNotificationsPlugin
-        >()
-        ?.createNotificationChannel(channel);
-
-    // 2. Manejar notificaciones en segundo plano y app cerrada (tap sobre la notificacion)
+    // 2. Listeners para segundo plano y app cerrada
     FirebaseMessaging.onMessageOpenedApp.listen((RemoteMessage message) {
       if (kDebugMode) {
-        print("A new onMessageOpenedApp event was published!");
+        print('[FCM] App abierta desde notificación en background.');
       }
       globalHasActiveAlert.value = true;
     });
 
-    FirebaseMessaging.instance.getInitialMessage().then((RemoteMessage? message) {
+    FirebaseMessaging.instance
+        .getInitialMessage()
+        .then((RemoteMessage? message) {
       if (message != null) {
         if (kDebugMode) {
-          print("App opened from terminated state by notification!");
+          print('[FCM] App abierta desde estado terminado por notificación.');
         }
         globalHasActiveAlert.value = true;
       }
@@ -135,53 +127,36 @@ class PushNotificationService {
       initializationSettings,
       onDidReceiveNotificationResponse: (NotificationResponse response) {
         if (kDebugMode) {
-          print("Local notification tapped: ${response.payload}");
+          print('[FCM] Notificación local tocada: ${response.payload}');
         }
         globalHasActiveAlert.value = true;
       },
     );
 
-    // 3. Configurar handlers de FCM
+    // 3. Handler para mensajes en primer plano (foreground)
     FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
 
     FirebaseMessaging.onMessage.listen((RemoteMessage message) {
-      String title = message.notification?.title ??
-          message.data['title'] ??
-          '⚠️ Emergencia reportada!';
-      String body = message.notification?.body ??
-          message.data['body'] ??
-          'Alerta comunitaria recibida.';
+      final String title =
+          message.notification?.title ?? message.data['title'] ?? '⚠️ Emergencia reportada!';
+      final String body =
+          message.notification?.body ?? message.data['body'] ?? 'Alerta comunitaria recibida.';
 
-      _localNotifications.show(
-        message.hashCode,
-        title,
-        body,
-        NotificationDetails(
-          android: AndroidNotificationDetails(
-            channel.id,
-            channel.name,
-            channelDescription: channel.description,
-            icon: '@mipmap/ic_launcher',
-            priority: Priority.max,
-            fullScreenIntent: true,
-            playSound: true,
-            sound: const RawResourceAndroidNotificationSound('alarma'),
-            enableVibration: true,
-            audioAttributesUsage: AudioAttributesUsage.alarm,
-            additionalFlags: Int32List.fromList(<int>[4]), // FLAG_INSISTENT para que el sonido se repita
-          ),
-          iOS: const DarwinNotificationDetails(
-            presentSound: true,
-            presentAlert: true,
-            presentBadge: true,
-          ),
-        ),
-      );
-      // Removed automatic active alert opening. The user must tap the notification.
+      _triggerAlarm(title, body);
+      // El usuario debe tocar la notificación para abrir la alerta.
     });
   }
 
-  static Future<void> requestPermissionAndSaveToken() async {
+  // ─────────────────────────────────────────────
+  // Permisos y token FCM
+  // ─────────────────────────────────────────────
+
+  /// Solicita permisos de notificación al sistema operativo y guarda el token
+  /// FCM en Supabase. Si el guardado falla, lanza una excepción que el
+  /// llamador debe capturar para manejar la situación apropiadamente.
+  ///
+  /// Retorna `true` si los permisos fueron otorgados, `false` en caso contrario.
+  static Future<bool> requestPermissionAndSaveToken() async {
     // 1. Solicitar permisos
     NotificationSettings settings = await _firebaseMessaging.requestPermission(
       alert: true,
@@ -190,110 +165,130 @@ class PushNotificationService {
     );
 
     if (kDebugMode) {
-      print('User granted permission: ${settings.authorizationStatus}');
+      print('[FCM] Permiso: ${settings.authorizationStatus}');
     }
 
-    if (settings.authorizationStatus == AuthorizationStatus.authorized ||
-        settings.authorizationStatus == AuthorizationStatus.provisional) {
-      // 2. Obtener y guardar el token
-      _firebaseMessaging.getToken().then((token) {
-        if (token != null) {
-          if (kDebugMode) {
-            print("FCM Token: $token");
-          }
-          _saveTokenToSupabase(token);
-        }
-      });
+    final granted =
+        settings.authorizationStatus == AuthorizationStatus.authorized ||
+        settings.authorizationStatus == AuthorizationStatus.provisional;
 
-      _firebaseMessaging.onTokenRefresh.listen((newToken) {
-        _saveTokenToSupabase(newToken);
-      });
+    if (granted) {
+      // 2. Obtener el token y guardarlo. Se usa await en lugar de .then()
+      // para que los errores propaguen correctamente al llamador.
+      final token = await _firebaseMessaging.getToken();
+      if (token != null) {
+        if (kDebugMode) {
+          print('[FCM] Token obtenido correctamente.');
+        }
+        // Nota: _saveTokenToSupabase lanzará si hay error de red o DB.
+        await _saveTokenToSupabase(token);
+      } else {
+        if (kDebugMode) {
+          print('[FCM] Advertencia: getToken() devolvió null.');
+        }
+      }
+
+      // 3. Escuchar renovaciones de token. Errores aquí se loguean
+      //    pero no se propagan ya que este listener corre en background.
+      _firebaseMessaging.onTokenRefresh.listen(
+        (newToken) async {
+          try {
+            await _saveTokenToSupabase(newToken);
+          } catch (e) {
+            if (kDebugMode) {
+              print('[FCM] Error al guardar token renovado: $e');
+            }
+          }
+        },
+      );
+    }
+
+    return granted;
+  }
+
+  /// Guarda el token FCM en la tabla `perfiles` de Supabase.
+  /// Lanza una excepción si el guardado falla, para que el llamador
+  /// pueda reaccionar (mostrar aviso al usuario, reintentar, etc.).
+  // ─────────────────────────────────────────────
+  // Suscripción a topics de Barrio
+  // ─────────────────────────────────────────────
+
+  /// Suscribe el dispositivo al topic del barrio especificado.
+  static Future<void> subscribeToBarrio(String barrioId) async {
+    try {
+      final topic = 'barrio_${barrioId.trim()}';
+      await _firebaseMessaging.subscribeToTopic(topic);
+      if (kDebugMode) {
+        print('[FCM] Suscrito explícitamente al tema: $topic');
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('[FCM] Error al suscribirse al tema del barrio: $e');
+      }
+    }
+  }
+
+  /// Cancela la suscripción del dispositivo al topic del barrio especificado.
+  static Future<void> unsubscribeFromBarrio(String barrioId) async {
+    try {
+      final topic = 'barrio_${barrioId.trim()}';
+      await _firebaseMessaging.unsubscribeFromTopic(topic);
+      if (kDebugMode) {
+        print('[FCM] Desuscrito explícitamente del tema: $topic');
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        print('[FCM] Error al desuscribirse del tema del barrio: $e');
+      }
     }
   }
 
   static Future<void> _saveTokenToSupabase(String token) async {
+    final prefs = await SharedPreferences.getInstance();
+    final cachedToken = prefs.getString('cached_fcm_token');
+
+    // Optimizacion: Si el token actual es igual al cacheado localmente, no hacemos UPDATE en DB
+    if (cachedToken == token) {
+      if (kDebugMode) {
+        print('[FCM] Token idéntico al guardado localmente, omitiendo UPDATE.');
+      }
+      return;
+    }
+
     final supabase = Supabase.instance.client;
     final user = supabase.auth.currentUser;
-    // The target table is 'perfiles', which binds the user details to the auth profile.
     if (user != null) {
-      try {
-        await supabase
-            .from('perfiles')
-            .update({'fcm_token': token})
-            .eq('id', user.id);
-
-        // Get the neighborhood ID to subscribe to the relevant topic
-        final userData = await supabase
-            .from('perfiles')
-            .select('barrio_id')
-            .eq('id', user.id)
-            .maybeSingle();
-
-        if (userData != null && userData['barrio_id'] != null) {
-          await configurarSuscripcionBarrio(userData['barrio_id'].toString());
-        }
-      } catch (e) {
-        if (kDebugMode) {
-          print('Error saving FCM token or subscribing to topic: $e');
-        }
+      // Si falla, la excepción se propaga al llamador. No se silencia.
+      await supabase
+          .from('perfiles')
+          .update({'fcm_token': token})
+          .eq('id', user.id);
+      
+      // Solo guardar en cache si la operación de BD fue un éxito
+      await prefs.setString('cached_fcm_token', token);
+      
+      if (kDebugMode) {
+        print('[FCM] Token guardado exitosamente en Supabase para userId=${user.id}');
       }
     }
   }
 
-  /// Gestiona la suscripción al topic FCM del barrio del usuario.
-  ///
-  /// Si el usuario cambia de barrio, se desuscribe del topic anterior antes
-  /// de suscribirse al nuevo. El [idBarrio] es el identificador único del barrio.
-  static Future<void> configurarSuscripcionBarrio(String idBarrio) async {
-    const prefsKey = 'subscribed_barrio_id';
-    final nuevoTopic = 'barrio_$idBarrio';
-
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      final barrioAnterior = prefs.getString(prefsKey);
-
-      // 1. Desuscribir del topic viejo si el barrio cambió
-      if (barrioAnterior != null && barrioAnterior != idBarrio) {
-        final topicAnterior = 'barrio_$barrioAnterior';
-        try {
-          await FirebaseMessaging.instance.unsubscribeFromTopic(topicAnterior);
-          if (kDebugMode) {
-            print('[FCM] Desuscrito del topic anterior: $topicAnterior');
-          }
-        } catch (e) {
-          if (kDebugMode) {
-            print('[FCM] Error al desuscribirse de $topicAnterior: $e');
-          }
-          // Continuamos aunque falle la desuscripción
-        }
-      }
-
-      // 2. Suscribir al nuevo topic
-      await FirebaseMessaging.instance.subscribeToTopic(nuevoTopic);
-      await prefs.setString(prefsKey, idBarrio);
-
-      if (kDebugMode) {
-        print('[FCM] Suscrito correctamente al topic: $nuevoTopic');
-      }
-    } catch (e) {
-      if (kDebugMode) {
-        print('[FCM] Error al configurar suscripción al topic $nuevoTopic: $e');
-      }
-      rethrow; // Propaga el error para que el llamador pueda manejarlo
-    }
-  }
+  // ─────────────────────────────────────────────
+  // Cancelación de notificaciones
+  // ─────────────────────────────────────────────
 
   /// Cancela todas las notificaciones locales activas.
-  /// Esto detiene el sonido de la alarma si está sonando.
+  /// Esto detiene el sonido de la alarma insistente si aún está activo.
   static Future<void> cancelAllNotifications() async {
     try {
       await _localNotifications.cancelAll();
+      await alarm_pkg.Alarm.stop(42);
       if (kDebugMode) {
-        print('All local notifications cancelled.');
+        print('[FCM] Todas las notificaciones locales y la alarma canceladas.');
       }
     } catch (e) {
       if (kDebugMode) {
-        print('Error cancelling notifications: $e');
+        print('[FCM] Error al cancelar notificaciones: $e');
       }
     }
   }

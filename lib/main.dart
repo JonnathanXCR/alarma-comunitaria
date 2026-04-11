@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:alarm/alarm.dart';
 
 import 'firebase_options.dart';
 
@@ -23,6 +24,9 @@ Future<void> main() async {
 
   // Inicializar Notificaciones Push
   await PushNotificationService.initialize();
+
+  // Inicializar Alarma
+  await Alarm.init();
 
   runApp(const AlarmaComunitariaApp());
 }

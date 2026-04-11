@@ -8,6 +8,8 @@ import 'package:url_launcher/url_launcher.dart';
 import '../providers/alarm_provider.dart';
 import '../../../auth/presentation/providers/auth_provider.dart';
 import '../../../auth/presentation/pages/pending_approval_page.dart';
+import '../../../auth/presentation/pages/force_notification_page.dart';
+import '../../../auth/presentation/pages/force_notification_page.dart';
 import '../../../profile/presentation/pages/profile_page.dart';
 import 'report_emergency_page.dart';
 import 'active_alert_page.dart';
@@ -131,6 +133,10 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       return const PendingApprovalPage();
     }
 
+    if (authProvider.hasCheckedNotifications && !authProvider.notificationsEnabled) {
+      return const ForceNotificationPage();
+    }
+
     return AnnotatedRegion<SystemUiOverlayStyle>(
       value: SystemUiOverlayStyle.light,
       child: Scaffold(
@@ -213,6 +219,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                     children: [
                       const SizedBox(height: 12),
                       _buildLocationRow(user),
+                      _buildNotificationWarningBanner(),
                       ValueListenableBuilder<bool>(
                         valueListenable: globalHasActiveAlert,
                         builder: (context, hasAlert, child) {
@@ -328,6 +335,62 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
         );
       },
     );
+  }
+
+  // ── Banner de advertencia de notificaciones ──
+  Widget _buildNotificationWarningBanner() {
+    final auth = context.watch<AuthProvider>();
+    if (!auth.notificationsMisconfigured) return const SizedBox.shrink();
+
+    return GestureDetector(
+      onTap: _openNotificationSettings,
+      child: Container(
+        margin: const EdgeInsets.only(top: 10),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        decoration: BoxDecoration(
+          color: const Color(0xFF3D2A00),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: const Color(0xFFFF9800).withOpacity(0.35)),
+        ),
+        child: Row(
+          children: [
+            const Icon(Icons.notifications_off_rounded, color: Color(0xFFFF9800), size: 18),
+            const SizedBox(width: 10),
+            const Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Notificaciones desactivadas',
+                    style: TextStyle(
+                      color: Color(0xFFFF9800),
+                      fontWeight: FontWeight.bold,
+                      fontSize: 12,
+                    ),
+                  ),
+                  SizedBox(height: 2),
+                  Text(
+                    'No podrás recibir alertas de emergencia. Toca para abrir ajustes.',
+                    style: TextStyle(
+                      color: Color(0xFFD4A150),
+                      fontSize: 11,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const Icon(Icons.chevron_right, color: Color(0xFFFF9800), size: 18),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _openNotificationSettings() async {
+    final uri = Uri.parse('app-settings:');
+    if (await canLaunchUrl(uri)) {
+      await launchUrl(uri);
+    }
   }
 
   // ── Fila de ubicación ──

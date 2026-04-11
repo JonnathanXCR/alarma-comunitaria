@@ -1,7 +1,9 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' hide User;
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../../../core/network/websocket_service.dart';
 import '../../../../core/services/push_notification_service.dart';
@@ -18,6 +20,12 @@ class AuthProvider extends ChangeNotifier {
   User? _user;
   String? _errorMessage;
   String? _successMessage;
+  /// Indica si los permisos de notificación fueron otorgados.
+  bool _notificationsEnabled = false;
+  /// Indica que el token FCM no pudo guardarse en Supabase (fallo de red/DB).
+  bool _notificationsMisconfigured = false;
+  /// Indica si ya se verificó/solicitó el permiso durante esta sesión.
+  bool _hasCheckedNotifications = false;
 
   AuthProvider({AuthRepository? repository})
     : _repository = repository ?? AuthRepository() {
@@ -29,6 +37,13 @@ class AuthProvider extends ChangeNotifier {
   String? get errorMessage => _errorMessage;
   String? get successMessage => _successMessage;
   bool get isAuthenticated => _status == AuthStatus.authenticated;
+  /// `true` si el sistema operativo otorgó permisos de notificación.
+  bool get notificationsEnabled => _notificationsEnabled;
+  /// `true` si ocurrió un error al guardar el token FCM tras el login.
+  /// La UI puede usar este flag para mostrar un banner de advertencia.
+  bool get notificationsMisconfigured => _notificationsMisconfigured;
+  /// `true` si ya se terminó de verificar/solicitar el permiso en [_initPushNotifications].
+  bool get hasCheckedNotifications => _hasCheckedNotifications;
 
   // ──────────────────────────────────────────────
   // Listener de cambios de sesión de Supabase
@@ -74,17 +89,49 @@ class AuthProvider extends ChangeNotifier {
   }
 
   /// Carga el perfil del usuario y establece el estado como autenticado.
+  ///
+  /// El guardado del token FCM es un paso secundario: si falla, el usuario
+  /// permanece autenticado pero [notificationsMisconfigured] se marca
+  /// como `true` para que la UI pueda mostrar un aviso.
   Future<void> _loadUserProfile(String userId) async {
     try {
       _user = await _repository.getPerfil(userId);
       _status = AuthStatus.authenticated;
       _connectRealtime();
-      await PushNotificationService.requestPermissionAndSaveToken();
     } catch (_) {
-      // Si no se puede cargar el perfil, tratamos como no autenticado
+      // Si no se puede cargar el perfil, tratamos como no autenticado.
       _setUnauthenticated();
+      notifyListeners();
+      return;
     }
+
+    // El guardado del token FCM es independiente del login.
+    // Si falla, el usuario sigue autenticado pero se avisa via flag.
+    await _initPushNotifications();
+
     notifyListeners();
+  }
+
+  Future<void> _initPushNotifications() async {
+    if (_user?.isAprobado != true) return;
+
+    try {
+      final granted = await PushNotificationService.requestPermissionAndSaveToken();
+      _notificationsEnabled = granted;
+      _notificationsMisconfigured = false;
+
+      if (granted && _user?.barrioId != null) {
+        await PushNotificationService.subscribeToBarrio(_user!.barrioId!);
+      }
+    } catch (e) {
+      _notificationsMisconfigured = true;
+      if (kDebugMode) {
+        print('[Auth] Advertencia: no se pudo guardar el FCM token: $e');
+      }
+    } finally {
+      _hasCheckedNotifications = true;
+      notifyListeners();
+    }
   }
 
   void _setUnauthenticated() {
@@ -129,6 +176,7 @@ class AuthProvider extends ChangeNotifier {
     try {
       _user = await _repository.login(email: email, password: password);
       _status = AuthStatus.authenticated;
+      await _initPushNotifications();
       _connectRealtime();
     } on AuthException catch (e) {
       _status = AuthStatus.error;
@@ -178,6 +226,7 @@ class AuthProvider extends ChangeNotifier {
       } else {
         _user = user;
         _status = AuthStatus.authenticated;
+        await _initPushNotifications();
         _connectRealtime();
       }
     } on AuthException catch (e) {
@@ -218,11 +267,15 @@ class AuthProvider extends ChangeNotifier {
 
       _user = updatedUser;
 
-      // Reconectar WS y actualizar notificaciones si el barrio cambió
+      // Reconectar WS y actualizar topic FCM si el barrio cambió
       if (barrioId != null && barrioId != oldBarrioId) {
         RealtimeService.instance.disconnect();
         _connectRealtime();
-        PushNotificationService.configurarSuscripcionBarrio(barrioId);
+
+        if (oldBarrioId != null) {
+          await PushNotificationService.unsubscribeFromBarrio(oldBarrioId);
+        }
+        await PushNotificationService.subscribeToBarrio(barrioId);
       }
 
       // El usuario ahora está pendiente de aprobación, así que el HomePage
@@ -251,10 +304,7 @@ class AuthProvider extends ChangeNotifier {
     try {
       final user = await _repository.verifyOTP(email: email, token: otp);
       if (user != null) {
-        _user = user;
-        _status = AuthStatus.authenticated;
-        _connectRealtime();
-        notifyListeners();
+        await _loadUserProfile(user.id);
         return true;
       }
     } on AuthException catch (e) {
@@ -289,8 +339,19 @@ class AuthProvider extends ChangeNotifier {
 
   /// Cierra sesión, desconecta Realtime y limpia el estado.
   Future<void> logout() async {
+    final oldBarrioId = _user?.barrioId;
+    if (oldBarrioId != null) {
+      await PushNotificationService.unsubscribeFromBarrio(oldBarrioId);
+    }
+
     RealtimeService.instance.disconnect();
     await _repository.logout();
+    
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove('cached_fcm_token');
+    } catch (_) {}
+
     _user = null;
     _status = AuthStatus.unauthenticated;
     notifyListeners();

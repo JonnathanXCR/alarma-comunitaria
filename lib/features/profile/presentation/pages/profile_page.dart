@@ -7,6 +7,7 @@ import 'edit_profile_page.dart';
 import '../../../../features/auth/presentation/providers/auth_provider.dart';
 import '../../../../features/neighborhood/presentation/pages/neighborhoods_page.dart';
 import '../../../../core/theme/app_colors.dart';
+import 'donations_page.dart';
 import '../../../../core/widgets/app_background.dart';
 
 class ProfilePage extends StatelessWidget {
@@ -343,6 +344,35 @@ class ProfilePage extends StatelessWidget {
               SizedBox(width: 8),
               Text(
                 'Editar Perfil',
+                style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 16),
+        ElevatedButton(
+          onPressed: () {
+            Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const DonationsPage()),
+            );
+          },
+          style: ElevatedButton.styleFrom(
+            backgroundColor: AppColors.red.withOpacity(0.15),
+            foregroundColor: AppColors.redLight,
+            elevation: 0,
+            padding: const EdgeInsets.all(16),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+              side: const BorderSide(color: AppColors.red, width: 1.5),
+            ),
+          ),
+          child: const Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(Icons.volunteer_activism_rounded, size: 20),
+              SizedBox(width: 8),
+              Text(
+                'Hacer una Donación',
                 style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
               ),
             ],
